@@ -1,0 +1,490 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DataReplayWidget</class>
+ <widget class="QWidget" name="DataReplayWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>900</width>
+    <height>600</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>数据回放软件</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_Main">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>6</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>4</number>
+   </property>
+   <!-- ==================== 标题栏 ==================== -->
+   <item>
+    <widget class="QLabel" name="label_Title">
+     <property name="text">
+      <string>&lt;h2&gt;数据回放软件&lt;/h2&gt;</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <!-- ==================== 主内容区域 ==================== -->
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_Main">
+     <property name="spacing">
+      <number>6</number>
+     </property>
+     <!-- ============ 左侧面板：文件管理 ============ -->
+     <item>
+      <widget class="QGroupBox" name="groupBox_FileMgr">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>280</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>400</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="title">
+        <string>文件管理</string>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_FileMgr">
+        <property name="spacing">
+         <number>4</number>
+        </property>
+        <!-- 树形列表 -->
+        <item>
+         <widget class="QTreeView" name="treeView_Scenario">
+          <property name="editTriggers">
+           <set>QAbstractItemView::NoEditTriggers</set>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SingleSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="uniformRowHeights">
+           <bool>true</bool>
+          </property>
+          <property name="headerHidden">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <!-- 加载想定按钮 -->
+        <item>
+         <widget class="QPushButton" name="btn_LoadScenario">
+          <property name="text">
+           <string>加载想定</string>
+          </property>
+         </widget>
+        </item>
+        <!-- 当前选中文件信息 -->
+        <item>
+         <widget class="QGroupBox" name="groupBox_FileInfo">
+          <property name="title">
+           <string>文件信息</string>
+          </property>
+          <layout class="QFormLayout" name="formLayout_FileInfo">
+           <item row="0" column="0">
+            <widget class="QLabel" name="label_FileInfoName">
+             <property name="text">
+              <string>名称：</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLabel" name="label_FileInfoValue">
+             <property name="text">
+              <string/>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <!-- ============ 右侧面板 ============ -->
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayout_Right">
+       <property name="spacing">
+        <number>4</number>
+       </property>
+       <!-- ===== 实体配置 ===== -->
+       <item>
+        <widget class="QGroupBox" name="groupBox_Entities">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="title">
+          <string>实体配置</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_Entities">
+          <property name="spacing">
+           <number>4</number>
+          </property>
+          <item>
+           <widget class="QTableView" name="tableView_Entities">
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <property name="selectionMode">
+             <enum>QAbstractItemView::SingleSelection</enum>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+            <property name="verticalScrollMode">
+             <enum>QAbstractItemView::ScrollPerPixel</enum>
+            </property>
+            <attribute name="horizontalHeaderStretchLastSection">
+             <bool>true</bool>
+            </attribute>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <!-- ===== 导调控制 ===== -->
+       <item>
+        <widget class="QGroupBox" name="groupBox_Control">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="title">
+          <string>导调控制</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_Control">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <!-- 控制按钮行 -->
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_Buttons">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="QPushButton" name="btn_Init">
+              <property name="text">
+               <string>初始化</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_Start">
+              <property name="text">
+               <string>开始</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_Pause">
+              <property name="text">
+               <string>暂停</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_Resume">
+              <property name="text">
+               <string>继续</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_Stop">
+              <property name="text">
+               <string>停止</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_Buttons">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <!-- 倍速控制 + 进度行 -->
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_SpeedProgress">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <!-- 倍速 -->
+            <item>
+             <widget class="QLabel" name="label_SpeedText">
+              <property name="text">
+               <string>倍速：</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="edit_Speed">
+              <property name="maximumSize">
+               <size>
+                <width>60</width>
+                <height>16777215</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>1</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignRight</set>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_SpeedUnit">
+              <property name="text">
+               <string>x  (范围:1-100)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_Separator">
+              <property name="text">
+               <string>  |  </string>
+              </property>
+             </widget>
+            </item>
+            <!-- 当前仿真时间 -->
+            <item>
+             <widget class="QLabel" name="label_SimTimeTitle">
+              <property name="text">
+               <string>当前：</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_SimTime">
+              <property name="minimumSize">
+               <size>
+                <width>160</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>--</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_Speed">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <!-- 进度条 -->
+          <item>
+           <widget class="QProgressBar" name="progressBar">
+            <property name="value">
+             <number>0</number>
+            </property>
+            <property name="format">
+             <string>%p%</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <!-- ===== 日志信息 ===== -->
+       <item>
+        <widget class="QGroupBox" name="groupBox_Log">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>140</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>280</height>
+          </size>
+         </property>
+         <property name="title">
+          <string>日志信息</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_Log">
+          <property name="spacing">
+           <number>2</number>
+          </property>
+          <item>
+           <widget class="QTextEdit" name="textEdit_Log">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="lineWrapMode">
+             <enum>QTextEdit::NoWrap</enum>
+            </property>
+            <property name="verticalScrollBarPolicy">
+             <enum>Qt::ScrollBarAlwaysOn</enum>
+            </property>
+            <property name="horizontalScrollBarPolicy">
+             <enum>Qt::ScrollBarAsNeeded</enum>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <!-- ==================== 状态栏 ==================== -->
+   <item>
+    <widget class="QFrame" name="frame_StatusBar">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>24</height>
+      </size>
+     </property>
+     <property name="frameShape">
+       <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+       <enum>QFrame::Sunken</enum>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_Status">
+      <property name="spacing">
+       <number>16</number>
+      </property>
+      <property name="leftMargin">
+       <number>6</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>6</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="label_StatusNATS">
+        <property name="text">
+         <string>NATS: 未连接</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_StatusScenario">
+        <property name="text">
+         <string>想定: --</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_StatusProgress">
+        <property name="text">
+         <string>进度: --</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_StatusState">
+        <property name="text">
+         <string>状态: Idle</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_Status">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

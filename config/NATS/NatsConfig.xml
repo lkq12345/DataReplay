@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+    <AttrIP IP="127.0.0.1" ></AttrIP>
+    <AttrTOPIC TOPIC="NATSMSG"></AttrTOPIC>
+    <AttrTOPIC TOPIC="SendToB"></AttrTOPIC>
+    <AttrTOPIC TOPIC="SendToA"></AttrTOPIC>
+    <AttrTOPIC TOPIC="DataReplay"></AttrTOPIC>
+</Root>

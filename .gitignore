@@ -1,0 +1,47 @@
+# ===================== 编译输出 =====================
+temp/
+build*/
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.a
+*.def
+*.exp
+*.pdb
+*.ilk
+*.manifest
+
+# ===================== Qt / IDE =====================
+*.pro.user
+*.pro.user.*
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+.qmake.stash
+Makefile
+Makefile.*
+*.plist
+*.app
+
+# ===================== 日志 =====================
+logs/
+*.log
+
+# ===================== 系统文件 =====================
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# ===================== Qt Creator =====================
+*.autosave
+*.sdf
+*.opensdf
+*.opendb
+*.suo
+*.user

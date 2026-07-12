@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scenario>
+    <!-- ===================== 想定元信息 ===================== -->
+    <ScenarioInfo>
+        <Name>海上编队巡逻想定2</Name>
+        <Description>包含 1 艘船、10 架飞机和 10 辆汽车的联合巡逻任务</Description>
+        <CreateTime>2026-07-011 14:32:05</CreateTime>
+        <StartTime>2025-07-01 14:32:05</StartTime>
+        <EndTime>2025-07-01 22:32:05</EndTime>
+        <SimStep>100</SimStep>
+    </ScenarioInfo>
+
+    <!-- ===================== 模型类型定义 ===================== -->
+    <ModelDefines>
+        <ModelType ID="SES_Ship_Model" Name="客船" Category="Ship"/>
+        <ModelType ID="SES_Plane_Model" Name="客机" Category="Plane"/>
+        <ModelType ID="SES_Car_Model" Name="轿车" Category="Car"/>
+    </ModelDefines>
+
+    <!-- ===================== 仿真实体 ===================== -->
+    <Entities>
+
+        <!-- ========== 舰船（1 艘） ========== -->
+        <Entity ID="1001" Name="东方之星" type="客船">
+            <Attribute X="50000.0" Y="50000.0" Z="0.0" Speed="0.0" Heading="45.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停泊"/>
+            <ModelType Type = "SES_Ship_Model"></ModelType>
+        </Entity>
+
+        <!-- ========== 飞机（10 架） ========== -->
+        <Entity ID="2001" Name="航班 CA-001" type="客机">
+            <Attribute X="52000.0" Y="50000.0" Z="3000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2002" Name="航班 CA-002" type="客机">
+            <Attribute X="52300.0" Y="50300.0" Z="3000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2003" Name="航班 CA-003" type="客机">
+            <Attribute X="52300.0" Y="49700.0" Z="3000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2004" Name="航班 CA-004" type="客机">
+            <Attribute X="49000.0" Y="51000.0" Z="3500.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2005" Name="航班 CA-005" type="客机">
+            <Attribute X="49200.0" Y="51300.0" Z="3500.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2006" Name="航班 CA-006" type="客机">
+            <Attribute X="49200.0" Y="50700.0" Z="3500.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2007" Name="直升机-01" type="直升机">
+            <Attribute X="48000.0" Y="49500.0" Z="5000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2008" Name="直升机-02" type="直升机">
+            <Attribute X="48000.0" Y="50500.0" Z="5000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2009" Name="航班 CA-009" type="客机">
+            <Attribute X="51000.0" Y="52000.0" Z="3000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+        <Entity ID="2010" Name="航班 CA-010" type="客机">
+            <Attribute X="51300.0" Y="52300.0" Z="3000.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="待命"/>
+            <ModelType Type = "SES_Plane_Model"></ModelType>
+        </Entity>
+
+        <!-- ========== 汽车（10 辆） ========== -->
+        <Entity ID="3001" Name="轿车-01" type="轿车">
+            <Attribute X="48000.0" Y="48000.0" Z="0.0" Speed="0.0" Heading="90.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3002" Name="轿车-02" type="轿车">
+            <Attribute X="48300.0" Y="48200.0" Z="0.0" Speed="0.0" Heading="90.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3003" Name="轿车-03" type="轿车">
+            <Attribute X="47700.0" Y="48200.0" Z="0.0" Speed="0.0" Heading="90.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3004" Name="SUV-04" type="SUV">
+            <Attribute X="49000.0" Y="47000.0" Z="0.0" Speed="0.0" Heading="135.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3005" Name="SUV-05" type="SUV">
+            <Attribute X="49300.0" Y="47200.0" Z="0.0" Speed="0.0" Heading="135.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3006" Name="SUV-06" type="SUV">
+            <Attribute X="48700.0" Y="47200.0" Z="0.0" Speed="0.0" Heading="135.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3007" Name="轿车-07" type="轿车">
+            <Attribute X="47500.0" Y="47500.0" Z="0.0" Speed="0.0" Heading="45.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3008" Name="轿车-08" type="轿车">
+            <Attribute X="48500.0" Y="46500.0" Z="0.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3009" Name="SUV-09" type="SUV">
+            <Attribute X="49500.0" Y="46000.0" Z="0.0" Speed="0.0" Heading="180.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+        <Entity ID="3010" Name="轿车-10" type="轿车">
+            <Attribute X="47000.0" Y="49000.0" Z="0.0" Speed="0.0" Heading="0.0" Pitch="0.0" Roll="0.0" Yaw="0.0" Angle="0.0" Status="停车"/>
+            <ModelType Type = "SES_Car_Model"></ModelType>
+        </Entity>
+
+    </Entities>
+</Scenario>
