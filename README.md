@@ -42,11 +42,22 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 | 跨文件合并 | 多数据文件按 simTime 全局排序后发送 |
 | 进度计算 | 基于数据文件实际时间范围，非想定理论结束时间 |
 
+### 实体ID映射
+
+| 功能 | 说明 |
+|------|------|
+| 映射加载 | 加载想定时自动读取 `mapping.json`，预填已配置的映射值 |
+| 单元格编辑 | 双击映射ID列直接编辑，只编辑映射列，其余列只读 |
+| 增量保存 | 点击"保存映射"按钮增量合并到 `mapping.json`，不影响其他映射组 |
+| 回放替换 | 回放时自动将数据中的原始实体ID替换为映射值后发送 |
+| 千级性能 | 正则一次扫描 + QMap 查找，千组映射、百条数据下单帧 < 0.01ms |
+
 ### NATS 通信 (Communication_NATS)
 
 | 功能 | 说明 |
 |------|------|
 | 消息发布 | 通过 NATS 主题 `DataReplay` 发送回放数据 |
+| 消息订阅 | 支持主题订阅/取消订阅/全取消，订阅对象生命周期管理 |
 | XML 配置 | 服务器地址、订阅主题在 `config/NATS/NatsConfig.xml` 配置 |
 | 断线重连 | 指数退避策略自动重连 |
 | 单例模式 | 全局唯一 NATS 通信实例 |
@@ -65,7 +76,7 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 | 区域 | 说明 |
 |------|------|
 | 文件管理 | QTreeView 树形展示想定和数据文件，支持选中单个文件回放 |
-| 实体配置 | QTableView 表格展示仿真实体（ID/名称/类型/状态） |
+| 实体配置 | QTableView 表格展示仿真实体（ID/名称/类型/状态/映射ID），支持双击编辑映射值 + 保存按钮 |
 | 导调控制 | 初始化/开始/暂停/继续/停止 五按钮，倍速输入(1-100) |
 | 进度显示 | 当前仿真时间 + QProgressBar 进度条 |
 | 日志信息 | QTextEdit 只读日志显示区 |
@@ -130,10 +141,11 @@ Server_DataReplay (dll)
 ┌──────────┐ ┌──────────────┐
 │ScenarioMgr│ │ReplayEngine  │  (Server 层)
 │ 想定管理  │ │ 回放引擎      │
+│ 映射读写  │ │ 映射替换      │
 └────┬─────┘ └──┬──┬──┬─────┘
      │          │  │  │
-     │          │  │  └──► Communication_NATS (NATS 通信单例)
-     │          │  │         └──► NATSClient (C 库封装)
+     │          │  │  └──► Communication_NATS (NATS 通信单例: 发布/订阅)
+     │          │  │         └──► NATSClient (C 库封装: 订阅生命周期管理)
      │          │  └────► DataFileReader × N (游标式文件读取)
      │          └───────► QTimer (步进定时器)
      │
@@ -152,12 +164,18 @@ Server_DataReplay (dll)
   APP → ScenarioMgr::loadScenario(xmlPath)
    ← 解析 XML → 关联数据文件 → 返回完整想定
   APP → 展开树形列表 + 填充实体表格
+  APP → ScenarioMgr::loadEntityIdMapping() → 预填映射ID列
+
+[编辑映射 → 点击保存]
+  APP → 遍历表格收集映射值（仅非空）
+  APP → ScenarioMgr::saveEntityIdMapping() → 增量合并写入 mapping.json
 
 [选中数据文件 → 初始化]
   APP → ReplayEngine::initialize(scenario, {selectedFile})
          ├── 创建 DataFileReader（只打开选中的数据文件）
          ├── 扫描文件最晚 simTime → m_dataEndTime
          ├── 初始化 NATS 连接
+         ├── setEntityIdMapping() → 传入映射表
          └── 状态 → Ready
 
 [开始回放]
@@ -166,6 +184,7 @@ Server_DataReplay (dll)
               └── 每次 tick():
                    ├── DataFileReader::readWindow() 读取窗口数据
                    ├── 跨文件合并 → 按 simTime 排序
+                   ├── 实体ID映射替换（正则 + QMap 查找）
                    ├── Communication_NATS::sendMsgData() → NATS 发送
                    ├── 推进仿真时间
                    └── 检查结束条件（allEnd / m_dataEndTime）
@@ -248,6 +267,7 @@ D:/QTProject/DataReplay/
 ├── dataFiles/                        # 想定数据目录
 │   └── 想定-XXX/
 │       ├── 想定.xml                  # 想定描述文件
+│       ├── mapping.json              # 实体ID映射配置文件
 │       └── 回放数据/
 │           └── *_data*.txt           # 回放数据文件
 ├── include/                          # 公共头文件
@@ -303,8 +323,8 @@ D:/QTProject/DataReplay/
 1. 启动程序后，左侧树形列表自动扫描显示所有想定
 2. 选中一个想定节点，点击 **加载想定**（或先展开查看数据文件）
 3. 选中想定节点（回放所有文件）或**具体数据文件节点**（回放单个文件）
-4. 点击 **初始化** → **开始**，开始回放
-5. 可随时调整倍速、暂停/继续、停止
+4. 如需映射：双击实体表格的"映射ID"列填入映射值，点击 **保存映射**
+5. 点击 **初始化** → **开始**，开始回放（映射值自动生效）
 
 ---
 
@@ -358,10 +378,28 @@ D:/QTProject/DataReplay/
 - `AttrIP`：NATS 服务器地址
 - `AttrTOPIC`：`DataReplay` 为回放数据发送主题
 
+### 实体ID映射 `dataFiles/<想定>/mapping.json`
+
+```json
+{
+    "实体ID": [
+        { "当前值": 1001, "映射值": 57001 },
+        { "当前值": 2001, "映射值": 57002 }
+    ],
+    "实体类型": [
+        { "当前值": "飞机", "映射值": "plane" }
+    ]
+}
+```
+
+- `实体ID`：回放时自动替换 `"entity":"1001"` → `"entity":"57001"`
+- `实体类型`：预留映射组，当前仅存储不参与替换
+- 文件不存在时自动创建，支持增量合并保存
+
 ---
 
 ## 未来扩展
 
 - **网络接收推演数据**：利用 `Communication_NATS::messageReceived` 信号接收并存储外部数据
-- **值替换**：在 ReplayEngine::tick() 中插入替换层，修改数据字段值后发送
+- **实体类型映射**：扩展映射替换层，支持类型字段的值替换
 - **日志增强**：日志级别筛选、搜索、按日期自动切割

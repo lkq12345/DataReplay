@@ -1,3 +1,16 @@
+/**
+ * @file DataFileReader.cpp
+ * @brief 大文件游标式顺序读取器的实现
+ *
+ * 实现基于文件游标的数据读取器，核心设计原则：
+ * - 不将文件全文加载到内存，仅维护 QFile + qint64 游标位置
+ * - 通过 readWindow() 按仿真时间窗口增量读取，避免重复扫描
+ * - 支持调用方跨文件合并数据时的时间戳排序
+ *
+ * 单行数据格式（外层时间戳 + JSON）：
+ *   2026-07-12 09:00:00.001 {"data":{"entity":"1001","simTime":{...},"cmd":"status",...}}
+ */
+
 #include "DataFileReader.h"
 
 #include <QFileInfo>
@@ -18,6 +31,7 @@ DataFileReader::~DataFileReader()
 
 bool DataFileReader::openFile(const QString &filePath)
 {
+    // 若已有打开的文件，先关闭
     if (m_file) {
         close();
     }
@@ -35,11 +49,12 @@ bool DataFileReader::openFile(const QString &filePath)
     m_fileInfo.filePath = fi.absoluteFilePath();
     m_fileInfo.fileSize = fi.size();
 
+    // 重置内部状态
     m_cursorPos = 0;
     m_atEnd = false;
     m_infoScanned = false;
 
-    // 预扫描文件信息
+    // 预扫描：获取起止时间、估算总行数
     scanFileInfo();
 
     qDebug() << "DataFileReader: Opened" << filePath
@@ -78,6 +93,7 @@ bool DataFileReader::atEnd() const
 
 void DataFileReader::reset()
 {
+    // 重置到文件开头，配合 ReplayEngine::stop() 使用
     if (m_file) {
         m_file->seek(0);
         m_cursorPos = 0;
@@ -93,12 +109,14 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
         return results;
     }
 
+    // 计算窗口结束时间：[windowStart, windowStart + stepMs)
     QDateTime windowEnd = windowStart.addMSecs(stepMs);
 
-    // 从游标当前位置开始读取
+    // 从上次停止的游标位置继续读取（避免重复扫描）
     m_file->seek(m_cursorPos);
 
     while (!m_file->atEnd()) {
+        // 记录当前行起始位置，用于回退游标
         qint64 lineStartPos = m_file->pos();
         QByteArray rawLine = m_file->readLine();
 
@@ -106,7 +124,7 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
             continue;
         }
 
-        // 去除末尾换行符
+        // 去除行末尾的 \r \n
         while (rawLine.endsWith('\n') || rawLine.endsWith('\r')) {
             rawLine.chop(1);
         }
@@ -115,53 +133,52 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
             continue;
         }
 
-        // 解析行数据
+        // 解析行：分离外层时间戳和 JSON 部分
         QDateTime outerTimestamp;
         QByteArray jsonPart;
         if (!parseLine(rawLine, outerTimestamp, jsonPart)) {
             continue;
         }
 
-        // 从 JSON 中提取仿真时间
+        // 从 JSON 内部提取仿真时间（优先用 simTime.formatted）
         QDateTime simTime = extractSimTime(jsonPart);
         if (!simTime.isValid()) {
-            // 如果无法提取 simTime，尝试使用外层时间戳
+            // JSON 内无 simTime 时，回退到外层时间戳
             simTime = outerTimestamp;
         }
 
-        // 窗口匹配：检查 simTime 是否在 [windowStart, windowEnd) 范围内
+        // ---- 窗口判断（半开区间 [windowStart, windowEnd)） ----
+
+        // 情况一：数据时间早于窗口 → 跳过，游标前进
         if (simTime < windowStart) {
-            // 当前数据时间早于窗口起始，跳过并更新游标
             m_cursorPos = m_file->pos();
             m_lastReadTimestamp = simTime;
             continue;
         }
 
+        // 情况二：数据时间超出窗口 → 停止本次读取，游标回退到此行开头
         if (simTime >= windowEnd) {
-            // 当前数据已超出窗口范围，停止读取
-            // 游标保持当前位置（以便下次从当前位置开始）
-            // 但需要把游标回退到这一行的起始位置
             m_cursorPos = lineStartPos;
             break;
         }
 
-        // 在窗口范围内，加入结果
+        // 情况三：在窗口范围内 → 加入结果集，游标前进
         DataRecord record;
         record.simTimestamp = simTime;
         record.fullLine = QString::fromUtf8(rawLine);
-        record.jsonPayload = QString::fromUtf8(jsonPart);
+        record.jsonPayload = QString::fromUtf8(jsonPart);  // 仅 JSON 部分，不含外层时间戳
         results.append(record);
 
         m_cursorPos = m_file->pos();
         m_lastReadTimestamp = simTime;
     }
 
-    // 检查是否到达文件末尾
+    // 标记文件是否已读完
     if (m_file->atEnd()) {
         m_atEnd = true;
     }
 
-    // 发射进度信号
+    // 发射单文件进度信号（基于时间范围的线性估算）
     if (m_fileInfo.maxTime.isValid() && m_fileInfo.minTime.isValid()) {
         qint64 totalMs = m_fileInfo.minTime.msecsTo(m_fileInfo.maxTime);
         if (totalMs > 0 && m_lastReadTimestamp.isValid()) {
@@ -176,9 +193,8 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
 
 bool DataFileReader::parseLine(const QByteArray &rawLine, QDateTime &outerTimestamp, QByteArray &jsonPart)
 {
-    // 格式: "YYYY-MM-DD HH:MM:SS.zzz JSON_DATA"
-    // 外层时间戳固定长度 23 字符: "2026-07-12 09:00:00.000"
-    // 直接用 left(23) 截取时间戳，避免被 JSON 内部的日期混扰
+    // 行格式: "YYYY-MM-DD HH:MM:SS.zzz <JSON_DATA>"
+    // 外层时间戳固定 23 字符，直接用 left(23) 截取，避免被 JSON 内部日期混淆
     QString lineStr = QString::fromUtf8(rawLine).trimmed();
 
     if (lineStr.length() < 23) {
@@ -187,12 +203,12 @@ bool DataFileReader::parseLine(const QByteArray &rawLine, QDateTime &outerTimest
 
     static const int TIMESTAMP_LEN = 23; // "YYYY-MM-DD HH:MM:SS.zzz"
 
-    // 取前 23 个字符作为时间戳，跳过后面的空格定位 JSON
+    // 取前 23 字符作为外层时间戳
     QString tsStr = lineStr.left(TIMESTAMP_LEN);
 
     outerTimestamp = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss.zzz");
     if (!outerTimestamp.isValid()) {
-        // 尝试无毫秒格式 "YYYY-MM-DD HH:MM:SS" (19字符)
+        // 兼容无毫秒的 19 字符格式 "YYYY-MM-DD HH:MM:SS"
         tsStr = lineStr.left(19);
         outerTimestamp = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss");
         if (!outerTimestamp.isValid()) {
@@ -208,7 +224,11 @@ bool DataFileReader::parseLine(const QByteArray &rawLine, QDateTime &outerTimest
 
 QDateTime DataFileReader::extractSimTime(const QByteArray &jsonData)
 {
-    // JSON 格式: {"data":{"simTime":{"formatted":"...","epochMillis":...},"entity":"...",...}}
+    // JSON 格式: {"data":{"simTime":{"formatted":"...","epochMillis":...},...}}
+    //
+    // 优先使用 formatted 字符串（本地时间，与想定 XML 解析一致），
+    // epochMillis 是 UTC 时间戳，在非 UTC 时区下会引入偏移。
+
     QJsonParseError error;
     QJsonDocument doc = QJsonDocument::fromJson(jsonData, &error);
 
@@ -232,8 +252,7 @@ QDateTime DataFileReader::extractSimTime(const QByteArray &jsonData)
         return QDateTime();
     }
 
-    // 优先使用 formatted 字符串（不涉及时区，与想定 XML 解析一致）
-    // epochMillis 是 UTC 时间戳，在非 UTC 时区下会引入偏移
+    // 情况一：simTime 是对象 → 优先取 formatted，备选取 epochMillis
     QJsonObject simTimeObj = simTimeVal.toObject();
     if (!simTimeObj.isEmpty()) {
         if (simTimeObj.contains("formatted")) {
@@ -245,14 +264,14 @@ QDateTime DataFileReader::extractSimTime(const QByteArray &jsonData)
             return dt;
         }
 
-        // 备选：使用 epochMillis（UTC 时间戳）
+        // 备选：epochMillis（UTC 毫秒时间戳）
         if (simTimeObj.contains("epochMillis")) {
             qint64 epochMs = (qint64)simTimeObj.value("epochMillis").toDouble();
             return QDateTime::fromMSecsSinceEpoch(epochMs);
         }
     }
 
-    // 如果 simTime 本身就是个数字（epoch millis）
+    // 情况二：simTime 本身就是一个数字（epochMillis）
     if (simTimeVal.isDouble()) {
         return QDateTime::fromMSecsSinceEpoch((qint64)simTimeVal.toDouble());
     }
@@ -270,7 +289,7 @@ void DataFileReader::scanFileInfo()
     m_fileInfo.recordCount = 0;
     m_infoScanned = true;
 
-    // 读取第一行获取起始时间
+    // ---- 读取第一行获取起始仿真时间 ----
     m_file->seek(0);
     QByteArray firstLine = m_file->readLine();
     if (firstLine.isEmpty()) {
@@ -284,13 +303,14 @@ void DataFileReader::scanFileInfo()
     if (parseLine(firstLine, outerTs, jsonPart)) {
         m_fileInfo.minTime = extractSimTime(jsonPart);
         if (!m_fileInfo.minTime.isValid()) {
-            m_fileInfo.minTime = outerTs;
+            m_fileInfo.minTime = outerTs;   // 回退到外层时间戳
         }
     }
 
-    // 从文件尾倒序读取最后一行获取结束时间
+    // ---- 从文件尾部读取最后一行获取结束仿真时间 ----
     const int bufferSize = 4096;
     if (fileSize > bufferSize) {
+        // 大文件：只读尾部 4KB 缓冲区
         m_file->seek(fileSize - bufferSize);
         QByteArray tailBuffer = m_file->read(bufferSize);
         QString tailStr = QString::fromUtf8(tailBuffer);
@@ -306,7 +326,7 @@ void DataFileReader::scanFileInfo()
             }
         }
     } else {
-        // 小文件：读取所有行，取最后一行
+        // 小文件：全量读取，取最后一行
         m_file->seek(0);
         QByteArray allData = m_file->readAll();
         QStringList lines = QString::fromUtf8(allData).split('\n', QString::SkipEmptyParts);
@@ -323,16 +343,15 @@ void DataFileReader::scanFileInfo()
         }
     }
 
-    // 估算行数
+    // ---- 估算总行数（用第一行长度做线性估算） ----
     if (fileSize > 0 && m_fileInfo.recordCount > 0) {
-        // 用第一行的长度估算总行数
         int firstLineLen = firstLine.length();
         if (firstLineLen > 0) {
             m_fileInfo.recordCount = (quint64)(fileSize / firstLineLen);
         }
     }
 
-    // 重置到文件开头
+    // 重置到文件开头，准备正式读取
     m_file->seek(0);
     m_cursorPos = 0;
 

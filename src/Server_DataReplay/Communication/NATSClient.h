@@ -13,6 +13,7 @@
 #include "NATS/nats/nats.h"
 #include "publicDefineAndStruct.h"
 #include <QMutex>
+#include <QMap>
 
 /**
  * @brief NATS 客户端封装类
@@ -55,6 +56,16 @@ public:
      */
     bool subscribe(const char* topic);
 
+    /**
+     * @brief 取消订阅指定主题
+     * @param topic 主题名称
+     * @return true 取消订阅成功，false 取消订阅失败
+     */
+    bool unsubscribe(const char* topic);
+
+    /** @brief 取消所有订阅 */
+    void unsubscribeAll();
+
     /** @brief 销毁 NATS 连接，释放所有相关资源 */
     void destroy();
 
@@ -90,6 +101,9 @@ private:
     registerNATSMsg m_linkNatsMsg = nullptr;    //!< NATS 消息回调函数指针
     void*           m_handler = nullptr;        //!< 消息处理对象指针
     QMutex          m_mutex;                    //!< 操作互斥锁，保证多线程安全
+
+    /** @brief 订阅映射表（主题 -> 订阅对象），用于管理订阅生命周期 */
+    QMap<QString, natsSubscription*> m_subscriptions;
 
     /** @brief 客户端内部状态枚举 */
     enum class State {

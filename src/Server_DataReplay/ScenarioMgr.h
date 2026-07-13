@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QDateTime>
 #include <QList>
+#include <QMap>
 #include "Server_DataReplay_global.h"
 
 /**
@@ -83,6 +84,21 @@ public:
 
     /** @brief 获取 dataFiles 根目录路径 */
     QString dataFilesRoot() const;
+
+    /**
+     * @brief 从想定目录加载实体ID映射表
+     * @param scenarioDir 想定目录路径
+     * @return 当前值 → 映射值 的映射表（文件不存在或解析失败返回空表）
+     */
+    QMap<QString, QString> loadEntityIdMapping(const QString &scenarioDir);
+
+    /**
+     * @brief 增量保存实体ID映射到想定目录下的 mapping.json
+     * @param scenarioDir 想定目录路径
+     * @param newMappings 本次新增/更新的映射（当前值 → 映射值）
+     * @return true 保存成功
+     */
+    bool saveEntityIdMapping(const QString &scenarioDir, const QMap<QString, QString> &newMappings);
 
 signals:
     void scenarioLoaded(const Scenario &scenario);

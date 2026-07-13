@@ -163,7 +163,7 @@
           <item>
            <widget class="QTableView" name="tableView_Entities">
             <property name="editTriggers">
-             <set>QAbstractItemView::NoEditTriggers</set>
+             <set>QAbstractItemView::DoubleClicked</set>
             </property>
             <property name="selectionMode">
              <enum>QAbstractItemView::SingleSelection</enum>
@@ -181,6 +181,31 @@
              <bool>true</bool>
             </attribute>
            </widget>
+          </item>
+          <!-- 保存映射按钮行 -->
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_SaveMapping">
+            <item>
+             <spacer name="horizontalSpacer_SaveMapping">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_SaveMapping">
+              <property name="text">
+               <string>保存映射</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
          </layout>
         </widget>

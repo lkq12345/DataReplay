@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QList>
+#include <QMap>
 #include "Server_DataReplay_global.h"
 
 class Scenario;
@@ -61,6 +62,9 @@ public:
     /** @brief 停止回放（重置到已就绪状态） */
     bool stop();
 
+    /** @brief 设置实体ID映射表（回放发送前将原始ID替换为映射值） */
+    void setEntityIdMapping(const QMap<QString, QString> &mapping);
+
     /** @brief 设置倍速（1~100，运行中实时生效） */
     void setSpeed(int speed);
 
@@ -106,6 +110,7 @@ private:
     QDateTime       m_dataEndTime;     //!< 所有数据文件的最大 simTime（用于进度和结束判断）
     int             m_speed = 1;
     bool            m_allReadersAtEnd = false;
+    QMap<QString, QString> m_entityIdMapping;   //!< 实体ID映射表（原始ID → 映射ID）
 };
 
 #endif // REPLAYENGINE_H

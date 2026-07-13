@@ -1,3 +1,11 @@
+/**
+ * @file DataFileReader.h
+ * @brief 大文件游标式顺序读取器的头文件
+ *
+ * 定义 DataFileReader 类和 DataRecord 结构体。
+ * 不加载全文到内存，通过文件游标 + 时间窗口实现增量读取。
+ */
+
 #ifndef DATAFILEREADER_H
 #define DATAFILEREADER_H
 

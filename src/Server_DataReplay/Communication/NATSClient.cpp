@@ -126,6 +126,14 @@ bool NATSClient::subscribe(const char *topic)
         return false;
     }
 
+    // 如果已经订阅过该主题，先取消旧订阅（避免重复订阅泄漏资源）
+    QString topicKey = QString::fromUtf8(topic);
+    auto it = m_subscriptions.find(topicKey);
+    if (it != m_subscriptions.end()) {
+        natsSubscription_Destroy(it.value());
+        m_subscriptions.erase(it);
+    }
+
     natsSubscription *sub = nullptr;
     // 订阅主题，使用静态函数 onMsgFromNATS 作为消息回调
     natsStatus s = natsConnection_Subscribe(&sub, m_pNatsConn, topic,
@@ -136,6 +144,8 @@ bool NATSClient::subscribe(const char *topic)
         return false;
     }
 
+    // 保存订阅对象到映射表，便于后续取消订阅和资源管理
+    m_subscriptions[topicKey] = sub;
     return true;
 }
 
@@ -168,9 +178,48 @@ bool NATSClient::publish(const char *topic, const char *buf, int nLength, bool b
     return true;
 }
 
+bool NATSClient::unsubscribe(const char *topic)
+{
+    QMutexLocker locker(&m_mutex);
+
+    if (topic == nullptr) {
+        return false;
+    }
+
+    QString topicKey = QString::fromUtf8(topic);
+    auto it = m_subscriptions.find(topicKey);
+    if (it == m_subscriptions.end()) {
+        qDebug() << "Topic not subscribed:" << topic;
+        return false;
+    }
+
+    // 销毁订阅对象（natsSubscription_Destroy 内部会自动取消订阅）
+    natsSubscription_Destroy(it.value());
+    m_subscriptions.erase(it);
+    qDebug() << "Unsubscribed from topic:" << topic;
+    return true;
+}
+
+void NATSClient::unsubscribeAll()
+{
+    QMutexLocker locker(&m_mutex);
+
+    for (auto it = m_subscriptions.begin(); it != m_subscriptions.end(); ++it) {
+        natsSubscription_Destroy(it.value());
+    }
+    m_subscriptions.clear();
+    qDebug() << "All subscriptions have been cancelled";
+}
+
 void NATSClient::destroy()
 {
     QMutexLocker locker(&m_mutex);
+
+    // 先销毁所有订阅对象（自动取消订阅），避免连接关闭后遗留悬空指针
+    for (auto it = m_subscriptions.begin(); it != m_subscriptions.end(); ++it) {
+        natsSubscription_Destroy(it.value());
+    }
+    m_subscriptions.clear();
 
     // 关闭并销毁NATS连接
     if (m_pNatsConn != nullptr) {

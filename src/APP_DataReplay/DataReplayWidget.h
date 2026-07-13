@@ -1,9 +1,18 @@
+/**
+ * @file DataReplayWidget.h
+ * @brief 数据回放主界面的头文件
+ *
+ * 定义主窗口类，负责 UI 展示和用户交互。
+ * 通过调用后端模块（ScenarioMgr、ReplayEngine）实现业务逻辑。
+ */
+
 #ifndef DATAREPLAYWIDGET_H
 #define DATAREPLAYWIDGET_H
 
 #include <QWidget>
 #include <QStandardItemModel>
 #include <QIntValidator>
+#include <QMap>
 
 #include "ReplayEngine.h"
 
@@ -52,6 +61,9 @@ private slots:
     /** @brief 停止回放 */
     void onStop();
 
+    /** @brief 保存实体ID映射 */
+    void onSaveMapping();
+
     /** @brief 树形列表选中项变化 */
     void onTreeSelectionChanged();
 
@@ -83,6 +95,9 @@ private:
     /** @brief 初始化实体表格模型 */
     void initEntityTable();
 
+    /** @brief 从当前想定目录加载映射并填充映射列 */
+    void loadMappingForCurrentScenario();
+
     /** @brief 扫描想定并更新树形列表 */
     void refreshScenarioTree();
 
@@ -111,6 +126,9 @@ private:
     // 状态
     bool m_isInitialized = false;
     QStringList m_selectedDataFiles;   //!< 当前选中的数据文件列表（可多选）
+
+    // 映射
+    QMap<QString, QString> m_entityIdMapping;   //!< 实体ID映射表（当前值 → 映射值）
 };
 
 #endif // DATAREPLAYWIDGET_H

@@ -1,3 +1,18 @@
+/**
+ * @file DataReplayWidget.cpp
+ * @brief 数据回放主界面的实现
+ *
+ * 负责 UI 展示、用户交互控制，通过调用后端模块（ScenarioMgr、ReplayEngine）
+ * 实现想定加载、回放控制和实体映射管理。
+ *
+ * 界面布局（由 .ui 文件定义）：
+ *   - 左侧：文件管理（QTreeView） + 加载按钮 + 文件信息
+ *   - 右侧上：实体配置（QTableView） + 保存映射按钮
+ *   - 右侧中：导调控制（初始化/开始/暂停/继续/停止 + 倍速 + 进度条）
+ *   - 右侧下：日志信息（QTextEdit）
+ *   - 底部：状态栏（NATS / 想定 / 进度 / 状态）
+ */
+
 #include "DataReplayWidget.h"
 #include "ui_DataReplayWidget.h"
 
@@ -27,6 +42,7 @@ enum EntityColumn {
     Col_Name,
     Col_Type,
     Col_Status,
+    Col_MapID,
     Col_EntityCount
 };
 
@@ -80,6 +96,10 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     connect(ui->treeView_Scenario->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, [this]() { onTreeSelectionChanged(); });
 
+    // 保存映射按钮
+    connect(ui->btn_SaveMapping, &QPushButton::clicked,
+            this, &DataReplayWidget::onSaveMapping);
+
     // 倍速输入
     connect(ui->edit_Speed, &QLineEdit::editingFinished,
             this, &DataReplayWidget::onSpeedChanged);
@@ -132,10 +152,11 @@ void DataReplayWidget::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
-// ==================== 初始化模型 ====================
+// ==================== 模型初始化 ====================
 
 void DataReplayWidget::initTreeModel()
 {
+    // 左侧文件管理树：单列，隐藏表头
     m_treeModel = new QStandardItemModel(this);
     m_treeModel->setHorizontalHeaderLabels(QStringList() << QStringLiteral("文件管理"));
     ui->treeView_Scenario->setModel(m_treeModel);
@@ -149,7 +170,8 @@ void DataReplayWidget::initEntityTable()
         QStringLiteral("ID"),
         QStringLiteral("名称"),
         QStringLiteral("类型"),
-        QStringLiteral("状态")
+        QStringLiteral("状态"),
+        QStringLiteral("映射ID")
     });
 
     ui->tableView_Entities->setModel(m_entityModel);
@@ -159,12 +181,14 @@ void DataReplayWidget::initEntityTable()
     ui->tableView_Entities->setColumnWidth(Col_Name, 120);
     ui->tableView_Entities->setColumnWidth(Col_Type, 80);
     ui->tableView_Entities->setColumnWidth(Col_Status, 80);
+    ui->tableView_Entities->setColumnWidth(Col_MapID, 100);
 }
 
 // ==================== 想定扫描与加载 ====================
 
 void DataReplayWidget::refreshScenarioTree()
 {
+    // 启动时自动扫描 dataFiles/ 目录，将找到的想定显示在树形列表中
     m_treeModel->clear();
     m_treeModel->setHorizontalHeaderLabels(QStringList() << QStringLiteral("文件管理"));
 
@@ -303,11 +327,32 @@ void DataReplayWidget::onLoadScenario()
     for (const EntityInfo &entity : scenario->entities) {
         int row = m_entityModel->rowCount();
         m_entityModel->insertRow(row);
-        m_entityModel->setItem(row, Col_ID, new QStandardItem(entity.id));
-        m_entityModel->setItem(row, Col_Name, new QStandardItem(entity.name));
-        m_entityModel->setItem(row, Col_Type, new QStandardItem(entity.type));
-        m_entityModel->setItem(row, Col_Status, new QStandardItem(entity.status));
+
+        // ID/名称/类型/状态 —— 只读不可编辑
+        auto *idItem = new QStandardItem(entity.id);
+        idItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_ID, idItem);
+
+        auto *nameItem = new QStandardItem(entity.name);
+        nameItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_Name, nameItem);
+
+        auto *typeItem = new QStandardItem(entity.type);
+        typeItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_Type, typeItem);
+
+        auto *statusItem = new QStandardItem(entity.status);
+        statusItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_Status, statusItem);
+
+        // 映射ID —— 允许双击编辑
+        auto *mapItem = new QStandardItem("");
+        mapItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable);
+        m_entityModel->setItem(row, Col_MapID, mapItem);
     }
+
+    // 加载该想定的映射关系，预填映射值
+    loadMappingForCurrentScenario();
 
     // ---- 更新文件信息面板 ----
     ui->label_FileInfoValue->setText(QStringLiteral("已加载: %1").arg(scenario->name));
@@ -323,6 +368,12 @@ void DataReplayWidget::onLoadScenario()
 
 // ==================== 回放控制 ====================
 
+/**
+ * @brief 初始化回放引擎
+ *
+ * 流程：创建 DataFileReader 实例 → 扫描数据文件时间范围 → 连接 NATS →
+ * 传入实体 ID 映射表 → 进入 Ready 状态等待开始
+ */
 void DataReplayWidget::onInit()
 {
     const Scenario *scenario = m_scenarioMgr->currentScenario();
@@ -349,6 +400,8 @@ void DataReplayWidget::onInit()
     bool success = m_replayEngine->initialize(scenario, m_selectedDataFiles);
     if (success) {
         m_isInitialized = true;
+        // 将当前实体ID映射传给引擎，回放发送时自动替换
+        m_replayEngine->setEntityIdMapping(m_entityIdMapping);
         LogService::instance().log("INFO", "回放引擎初始化完成");
     } else {
         LogService::instance().log("ERROR", "回放引擎初始化失败");
@@ -609,4 +662,86 @@ void DataReplayWidget::setSimTimeLabel(const QDateTime &time)
     } else {
         ui->label_SimTime->setText("--");
     }
+}
+
+// ==================== 映射配置 ====================
+
+void DataReplayWidget::loadMappingForCurrentScenario()
+{
+    const Scenario *scenario = m_scenarioMgr->currentScenario();
+    if (!scenario)
+        return;
+
+    // 从想定文件路径反推想定目录
+    QFileInfo fi(scenario->filePath);
+    QString scenarioDir = fi.absolutePath();
+
+    // 加载映射表
+    m_entityIdMapping = m_scenarioMgr->loadEntityIdMapping(scenarioDir);
+
+    if (m_entityIdMapping.isEmpty())
+        return;
+
+    // 遍历表格每一行，根据实体ID匹配映射值
+    for (int row = 0; row < m_entityModel->rowCount(); ++row) {
+        QStandardItem *idItem = m_entityModel->item(row, Col_ID);
+        if (!idItem)
+            continue;
+
+        QString entityId = idItem->text();
+        if (m_entityIdMapping.contains(entityId)) {
+            QStandardItem *mapItem = m_entityModel->item(row, Col_MapID);
+            if (mapItem) {
+                mapItem->setText(m_entityIdMapping[entityId]);
+            }
+        }
+    }
+
+    LogService::instance().log("INFO",
+        QStringLiteral("已加载实体ID映射，共 %1 条").arg(m_entityIdMapping.size()));
+}
+
+void DataReplayWidget::onSaveMapping()
+{
+    const Scenario *scenario = m_scenarioMgr->currentScenario();
+    if (!scenario) {
+        QMessageBox::information(this, QStringLiteral("提示"),
+                                 QStringLiteral("请先加载想定"));
+        return;
+    }
+
+    QFileInfo fi(scenario->filePath);
+    QString scenarioDir = fi.absolutePath();
+
+    // 遍历表格收集映射值
+    QMap<QString, QString> mappings;
+    for (int row = 0; row < m_entityModel->rowCount(); ++row) {
+        QStandardItem *idItem = m_entityModel->item(row, Col_ID);
+        QStandardItem *mapItem = m_entityModel->item(row, Col_MapID);
+        if (!idItem || !mapItem)
+            continue;
+
+        QString entityId = idItem->text();
+        QString mapValue = mapItem->text().trimmed();
+
+        // 只保存映射值非空的条目
+        if (!mapValue.isEmpty()) {
+            mappings[entityId] = mapValue;
+        }
+    }
+
+    if (!m_scenarioMgr->saveEntityIdMapping(scenarioDir, mappings)) {
+        QMessageBox::warning(this, QStringLiteral("错误"),
+                             QStringLiteral("保存映射失败"));
+        return;
+    }
+
+    // 更新内存中的映射表
+    m_entityIdMapping = mappings;
+
+    LogService::instance().log("INFO",
+        QStringLiteral("映射已保存，共 %1 条").arg(mappings.size()));
+
+    QMessageBox::information(this, QStringLiteral("提示"),
+                             QStringLiteral("映射保存成功，共 %1 条").arg(mappings.size()));
 }
