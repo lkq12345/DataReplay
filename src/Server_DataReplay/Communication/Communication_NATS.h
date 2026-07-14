@@ -14,6 +14,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QXmlStreamReader>
+#include "Server_DataReplay_global.h"
 #include "Service_Communication_Factory.h"
 #include "NATSClient.h"
 
@@ -27,7 +28,7 @@ class Communication_Interior; // 前向声明，避免循环引用
  * 支持从 XML 配置文件读取服务器地址和订阅主题，
  * 具备断线重连机制，并能将 NATS 消息桥接到进程内部通信系统。
  */
-class Communication_NATS : public QObject, public Service_Communication_Factory
+class SERVER_DATAREPLAY_EXPORT Communication_NATS : public QObject, public Service_Communication_Factory
 {
     Q_OBJECT
 public:
@@ -76,6 +77,9 @@ public:
      */
     void setInteriorCommunication(Communication_Interior* pInterior);
 
+    /** @brief 查询 NATS 是否已成功连接并完成订阅 */
+    bool isConnected() const { return m_bNATSInitialized; }
+
 signals:
     /**
      * @brief NATS 消息接收信号，供 UI 层订阅更新
@@ -83,6 +87,12 @@ signals:
      * @param data    消息数据
      */
     void messageReceived(const QString& subject, const QByteArray& data);
+
+    /**
+     * @brief NATS 连接状态变化信号
+     * @param connected true 表示已成功连接并完成主题订阅
+     */
+    void natsConnected(bool connected);
 
 private:
     Communication_NATS();
@@ -100,6 +110,7 @@ private:
     // 重连机制相关成员（仅用于初始连接失败的重试，连接成功后由 NATS 内置重连接管）
     QTimer*              m_pReconnectTimer;             //!< 重连定时器
     int                  m_nReconnectAttempts;          //!< 当前已尝试的重连次数
+    bool                 m_bNATSInitialized = false;    //!< 是否已完成 NATS 初始化连接与订阅
 };
 
 #endif // COMMUNICATION_NATS_H

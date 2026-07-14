@@ -35,7 +35,6 @@
    <property name="bottomMargin">
     <number>4</number>
    </property>
-   <!-- ==================== 标题栏 ==================== -->
    <item>
     <widget class="QLabel" name="label_Title">
      <property name="text">
@@ -46,13 +45,11 @@
      </property>
     </widget>
    </item>
-   <!-- ==================== 主内容区域 ==================== -->
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_Main">
      <property name="spacing">
       <number>6</number>
      </property>
-     <!-- ============ 左侧面板：文件管理 ============ -->
      <item>
       <widget class="QGroupBox" name="groupBox_FileMgr">
        <property name="sizePolicy">
@@ -80,7 +77,6 @@
         <property name="spacing">
          <number>4</number>
         </property>
-        <!-- 树形列表 -->
         <item>
          <widget class="QTreeView" name="treeView_Scenario">
           <property name="editTriggers">
@@ -100,51 +96,14 @@
           </property>
          </widget>
         </item>
-        <!-- 加载想定按钮 -->
-        <item>
-         <widget class="QPushButton" name="btn_LoadScenario">
-          <property name="text">
-           <string>加载想定</string>
-          </property>
-         </widget>
-        </item>
-        <!-- 当前选中文件信息 -->
-        <item>
-         <widget class="QGroupBox" name="groupBox_FileInfo">
-          <property name="title">
-           <string>文件信息</string>
-          </property>
-          <layout class="QFormLayout" name="formLayout_FileInfo">
-           <item row="0" column="0">
-            <widget class="QLabel" name="label_FileInfoName">
-             <property name="text">
-              <string>名称：</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLabel" name="label_FileInfoValue">
-             <property name="text">
-              <string/>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
        </layout>
       </widget>
      </item>
-     <!-- ============ 右侧面板 ============ -->
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_Right">
        <property name="spacing">
         <number>4</number>
        </property>
-       <!-- ===== 实体配置 ===== -->
        <item>
         <widget class="QGroupBox" name="groupBox_Entities">
          <property name="sizePolicy">
@@ -165,14 +124,14 @@
             <property name="editTriggers">
              <set>QAbstractItemView::DoubleClicked</set>
             </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
             <property name="selectionMode">
              <enum>QAbstractItemView::SingleSelection</enum>
             </property>
             <property name="selectionBehavior">
              <enum>QAbstractItemView::SelectRows</enum>
-            </property>
-            <property name="alternatingRowColors">
-             <bool>true</bool>
             </property>
             <property name="verticalScrollMode">
              <enum>QAbstractItemView::ScrollPerPixel</enum>
@@ -182,7 +141,6 @@
             </attribute>
            </widget>
           </item>
-          <!-- 保存映射按钮行 -->
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_SaveMapping">
             <item>
@@ -210,7 +168,6 @@
          </layout>
         </widget>
        </item>
-       <!-- ===== 导调控制 ===== -->
        <item>
         <widget class="QGroupBox" name="groupBox_Control">
          <property name="sizePolicy">
@@ -226,7 +183,6 @@
           <property name="spacing">
            <number>6</number>
           </property>
-          <!-- 控制按钮行 -->
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_Buttons">
             <property name="spacing">
@@ -282,13 +238,11 @@
             </item>
            </layout>
           </item>
-          <!-- 倍速控制 + 进度行 -->
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_SpeedProgress">
             <property name="spacing">
              <number>8</number>
             </property>
-            <!-- 倍速 -->
             <item>
              <widget class="QLabel" name="label_SpeedText">
               <property name="text">
@@ -326,7 +280,6 @@
               </property>
              </widget>
             </item>
-            <!-- 当前仿真时间 -->
             <item>
              <widget class="QLabel" name="label_SimTimeTitle">
               <property name="text">
@@ -362,7 +315,6 @@
             </item>
            </layout>
           </item>
-          <!-- 进度条 -->
           <item>
            <widget class="QProgressBar" name="progressBar">
             <property name="value">
@@ -376,7 +328,6 @@
          </layout>
         </widget>
        </item>
-       <!-- ===== 日志信息 ===== -->
        <item>
         <widget class="QGroupBox" name="groupBox_Log">
          <property name="sizePolicy">
@@ -406,17 +357,17 @@
           </property>
           <item>
            <widget class="QTextEdit" name="textEdit_Log">
-            <property name="readOnly">
-             <bool>true</bool>
-            </property>
-            <property name="lineWrapMode">
-             <enum>QTextEdit::NoWrap</enum>
-            </property>
             <property name="verticalScrollBarPolicy">
              <enum>Qt::ScrollBarAlwaysOn</enum>
             </property>
             <property name="horizontalScrollBarPolicy">
              <enum>Qt::ScrollBarAsNeeded</enum>
+            </property>
+            <property name="lineWrapMode">
+             <enum>QTextEdit::NoWrap</enum>
+            </property>
+            <property name="readOnly">
+             <bool>true</bool>
             </property>
            </widget>
           </item>
@@ -427,7 +378,6 @@
      </item>
     </layout>
    </item>
-   <!-- ==================== 状态栏 ==================== -->
    <item>
     <widget class="QFrame" name="frame_StatusBar">
      <property name="sizePolicy">
@@ -443,10 +393,10 @@
       </size>
      </property>
      <property name="frameShape">
-       <enum>QFrame::StyledPanel</enum>
+      <enum>QFrame::StyledPanel</enum>
      </property>
      <property name="frameShadow">
-       <enum>QFrame::Sunken</enum>
+      <enum>QFrame::Sunken</enum>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_Status">
       <property name="spacing">

@@ -70,10 +70,21 @@ int Communication_NATS::sendMsgData(void *pBuf, int nSize, QString strTopicID, Q
 
 void Communication_NATS::initNATSConnect()
 {
+    // 已经成功初始化过（含连接+订阅），避免重复初始化导致连接泄漏
+    if (m_bNATSInitialized) {
+        qDebug() << "NATS already initialized, skipping";
+        return;
+    }
+
     // NATS客户端未初始化时直接返回
     if (!m_NATSClient) {
         qDebug() << "NATSClient not initialized";
         return;
+    }
+
+    // 停止可能正在运行的重连定时器（全新开始连接流程）
+    if (m_pReconnectTimer->isActive()) {
+        m_pReconnectTimer->stop();
     }
 
     // 构建NATS服务器URL，默认使用 localhost:4222
@@ -110,6 +121,10 @@ void Communication_NATS::initNATSConnect()
             }
         }
     }
+
+    // 标记初始化完成，防止后续重复初始化
+    m_bNATSInitialized = true;
+    emit natsConnected(true);
 }
 
 void Communication_NATS::readIPAndTopicConfig()
@@ -216,6 +231,9 @@ void Communication_NATS::attemptReconnect()
                 m_NATSClient->subscribe(topic.toStdString().c_str());
             }
         }
+        // 标记初始化完成，通知 UI 层 NATS 已就绪
+        m_bNATSInitialized = true;
+        emit natsConnected(true);
         return;
     }
 

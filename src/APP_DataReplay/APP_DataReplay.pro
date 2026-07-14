@@ -25,16 +25,19 @@ INCLUDEPATH += $$PWD/../Server_DataReplay
 
 SOURCES += \
     main.cpp \
-    DataReplayWidget.cpp
+    DataReplayWidget.cpp \
+    ScenarioFilterProxyModel.cpp
 
 HEADERS += \
-    DataReplayWidget.h
+    DataReplayWidget.h \
+    ScenarioFilterProxyModel.h
 
 FORMS += \
     DataReplayWidget.ui
 
 # 链接 Server_DataReplay 库
 LIBS += -L$$PWD/../../bin -lServer_DataReplay
+
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

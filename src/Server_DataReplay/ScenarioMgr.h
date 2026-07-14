@@ -11,49 +11,59 @@
 
 /**
  * @brief 仿真实体信息
+ *
+ * 描述想定中的一个仿真对象（舰船、飞机、汽车等），
+ * 仅保留标识和名称用于实体映射配置。
+ * 数据来源：XML 中 <Entities> 区域内的 <Entity> 元素。
  */
 struct EntityInfo {
-    QString id;
-    QString name;
-    QString type;
-    double x = 0.0, y = 0.0, z = 0.0;
-    double speed = 0.0, heading = 0.0;
-    QString status;
+    QString id;             //!< 实体唯一标识，例如 "1001"（来自 Entity 元素的 ID 属性）
+    QString name;           //!< 实体显示名称，例如 "东方之星"（来自 Entity 元素的 Name 属性）
 };
 
 /**
  * @brief 想定完整信息
+ *
+ * 一个想定代表一次仿真演练的完整描述，包含元信息（名称、时间范围、步长等）
+ * 和参与仿真的实体列表。
+ * 数据来源：XML 想定文件（<Scenario> 根元素）解析 + 代码自动关联数据文件。
  */
 struct Scenario {
-    QString name;
-    QString description;
-    QString filePath;
-    QDateTime startTime;
-    QDateTime endTime;
-    int simStepMs = 100;
-    QStringList dataFiles;
-    QList<EntityInfo> entities;
+    QString name;                       //!< 想定名称，例如 "海上编队巡逻想定"（XML: ScenarioInfo/Attribute[@Name='SceName']）
+    QString filePath;                   //!< 想定 XML 文件的完整路径（代码设置，非 XML 解析结果）
+    QString createTime;                 //!< 想定创建时间，字符串格式（XML: ScenarioInfo/Attribute[@Name='CreateTime']）
+    QDateTime startTime;                //!< 仿真开始时间（XML: ScenarioInfo/Attribute[@Name='StartTime']）
+    QDateTime endTime;                  //!< 仿真结束时间，作为回放自动停止的上限（XML: ScenarioInfo/Attribute[@Name='EndTime']）
+    int simStepMs = 100;                //!< 仿真步长（毫秒），控制每次 tick 推进的时间窗口大小（XML: ScenarioInfo/Attribute[@Name='SimStep']）
+    QStringList dataFiles;              //!< 关联的回放数据文件绝对路径列表（代码自动扫描"回放数据/"子目录，非 XML 解析）
+    QList<EntityInfo> entities;         //!< 想定中包含的仿真实体列表（仅含 ID 和 Name）
 };
 
 /**
- * @brief 想定摘要（用于列表展示）
+ * @brief 想定摘要（用于树形列表展示）
+ *
+ * 轻量级信息，在 scanScenarios() 阶段快速生成，
+ * 不包含实体详情和数据文件关联，仅用于 UI 列表展示。
  */
 struct ScenarioSummary {
-    QString name;
-    QString scenarioDir;
-    QString filePath;
-    int entityCount = 0;
+    QString name;           //!< 想定名称
+    QString scenarioDir;    //!< 想定目录的绝对路径（dataFiles/ 下的子目录）
+    QString filePath;       //!< 想定 XML 文件的完整路径
+    int entityCount = 0;    //!< 实体数量（来自 XML 中 <Entities> 区域的 Entity 元素计数）
 };
 
 /**
  * @brief 数据文件预扫描信息
+ *
+ * 快速估算数据文件的基本参数（不加载全文到内存），
+ * 用于 UI 展示文件大小、记录条数和时间范围。
  */
 struct DataFileInfo {
-    QString filePath;
-    qint64 fileSize = 0;
-    quint64 recordCount = 0;
-    QDateTime minTime;
-    QDateTime maxTime;
+    QString filePath;           //!< 数据文件的绝对路径
+    qint64 fileSize = 0;        //!< 文件大小（字节）
+    quint64 recordCount = 0;    //!< 估算的数据记录总条数（基于平均行长度线性估算）
+    QDateTime minTime;          //!< 数据文件中的最早仿真时间（读取首行获得）
+    QDateTime maxTime;          //!< 数据文件中的最晚仿真时间（读取尾部获得）
 };
 
 /**
@@ -99,6 +109,36 @@ public:
      * @return true 保存成功
      */
     bool saveEntityIdMapping(const QString &scenarioDir, const QMap<QString, QString> &newMappings);
+
+    /**
+     * @brief 重命名想定文件夹及其 XML 文件
+     * @param oldDirPath 原想定目录的绝对路径
+     * @param newName    新名称（不含路径前缀）
+     * @return true 重命名成功
+     */
+    bool renameScenario(const QString &oldDirPath, const QString &newName);
+
+    /**
+     * @brief 重命名数据文件
+     * @param oldFilePath 原数据文件的绝对路径
+     * @param newName     新文件名（自动补 .txt 后缀）
+     * @return true 重命名成功
+     */
+    bool renameDataFile(const QString &oldFilePath, const QString &newName);
+
+    /**
+     * @brief 删除整个想定目录（含所有数据文件和配置）
+     * @param scenarioDirPath 想定目录的绝对路径
+     * @return true 删除成功；若为当前已加载想定则同时清除
+     */
+    bool deleteScenario(const QString &scenarioDirPath);
+
+    /**
+     * @brief 删除单个数据文件
+     * @param filePath 数据文件的绝对路径
+     * @return true 删除成功，自动从当前想定 dataFiles 列表中移除
+     */
+    bool deleteDataFile(const QString &filePath);
 
 signals:
     void scenarioLoaded(const Scenario &scenario);

@@ -13,6 +13,8 @@
 #include <QStandardItemModel>
 #include <QIntValidator>
 #include <QMap>
+#include <QLineEdit>
+#include <QPoint>
 
 #include "ReplayEngine.h"
 
@@ -20,8 +22,9 @@ QT_BEGIN_NAMESPACE
 namespace Ui { class DataReplayWidget; }
 QT_END_NAMESPACE
 
-// 前置声明后端类
+// 前置声明
 class ScenarioMgr;
+class ScenarioFilterProxyModel;
 struct Scenario;
 
 /**
@@ -88,6 +91,24 @@ private slots:
     /** @brief 错误处理 */
     void onError(const QString &error);
 
+    /** @brief NATS 连接状态变化 */
+    void onNatsConnected(bool connected);
+
+    /** @brief 右键菜单 */
+    void onTreeContextMenu(const QPoint &pos);
+
+    /** @brief 重命名想定 */
+    void onRenameScenario(const QModelIndex &sourceIndex);
+
+    /** @brief 重命名数据文件 */
+    void onRenameDataFile(const QModelIndex &sourceIndex);
+
+    /** @brief 删除想定 */
+    void onDeleteScenario(const QModelIndex &sourceIndex);
+
+    /** @brief 删除数据文件 */
+    void onDeleteDataFile(const QModelIndex &sourceIndex);
+
 private:
     /** @brief 初始化树形列表模型 */
     void initTreeModel();
@@ -110,6 +131,9 @@ private:
     /** @brief 设置仿真时间标签 */
     void setSimTimeLabel(const QDateTime &time);
 
+    /** @brief 将 View 的 proxy index 映射为源 model index */
+    QModelIndex toSourceIndex(const QModelIndex &viewIndex) const;
+
     Ui::DataReplayWidget *ui;
 
     // 后端模块
@@ -117,8 +141,12 @@ private:
     ReplayEngine   *m_replayEngine = nullptr;
 
     // 模型
-    QStandardItemModel *m_treeModel = nullptr;
-    QStandardItemModel *m_entityModel = nullptr;
+    QStandardItemModel       *m_treeModel = nullptr;
+    ScenarioFilterProxyModel *m_proxyModel = nullptr;  //!< 过滤代理（源 model → view）
+    QStandardItemModel       *m_entityModel = nullptr;
+
+    // 搜索
+    QLineEdit *m_searchEdit = nullptr;                 //!< 搜索过滤输入框
 
     // 校验器
     QIntValidator *m_speedValidator = nullptr;

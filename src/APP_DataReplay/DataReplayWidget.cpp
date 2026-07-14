@@ -18,6 +18,7 @@
 
 #include "ScenarioMgr.h"
 #include "ReplayEngine.h"
+#include "ScenarioFilterProxyModel.h"
 #include "LogService.h"
 #include "Communication/Communication_NATS.h"
 
@@ -35,13 +36,16 @@
 #include <QTextDocument>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QDir>
+#include <QTimer>
+#include <QMenu>
+#include <QInputDialog>
+#include <QRegularExpression>
 
 // ==================== 列索引定义 ====================
 enum EntityColumn {
     Col_ID = 0,
     Col_Name,
-    Col_Type,
-    Col_Status,
     Col_MapID,
     Col_EntityCount
 };
@@ -58,6 +62,22 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     // ==================== 创建后端模块 ====================
     m_scenarioMgr = new ScenarioMgr(this);
     m_replayEngine = new ReplayEngine(this);
+
+    // ==================== 启动时自动连接 NATS ====================
+    // 在后台异步发起 NATS 连接（内部含指数退避重连机制），不阻塞 UI 启动
+    Communication_NATS::getInstance().initNATSConnect();
+
+    // ==================== 文件管理搜索框 ====================
+    // 代码创建搜索框插入到"文件管理"面板顶部，不修改 .ui 文件
+    m_searchEdit = new QLineEdit();
+    m_searchEdit->setPlaceholderText(QStringLiteral("搜索文件..."));
+    m_searchEdit->setClearButtonEnabled(true);
+    ui->verticalLayout_FileMgr->insertWidget(0, m_searchEdit);
+
+    // 启用右键菜单
+    ui->treeView_Scenario->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->treeView_Scenario, &QTreeView::customContextMenuRequested,
+            this, &DataReplayWidget::onTreeContextMenu);
 
     // ==================== 初始化模型 ====================
     initTreeModel();
@@ -78,9 +98,6 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     // ==================== 连接信号/槽 ====================
 
     // -- UI 控件信号 --
-    connect(ui->btn_LoadScenario, &QPushButton::clicked,
-            this, &DataReplayWidget::onLoadScenario);
-
     connect(ui->btn_Init, &QPushButton::clicked,
             this, &DataReplayWidget::onInit);
     connect(ui->btn_Start, &QPushButton::clicked,
@@ -124,7 +141,12 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
                 LogService::instance().log(level, msg);
             });
 
+    // -- NATS 连接状态信号 --
+    connect(&Communication_NATS::getInstance(), &Communication_NATS::natsConnected,
+            this, &DataReplayWidget::onNatsConnected);
+
     // ==================== 初始界面状态 ====================
+    ui->label_StatusNATS->setText(QStringLiteral("NATS: 连接中..."));
     updateButtonStates();
     updateStatusBar();
 
@@ -159,7 +181,20 @@ void DataReplayWidget::initTreeModel()
     // 左侧文件管理树：单列，隐藏表头
     m_treeModel = new QStandardItemModel(this);
     m_treeModel->setHorizontalHeaderLabels(QStringList() << QStringLiteral("文件管理"));
-    ui->treeView_Scenario->setModel(m_treeModel);
+
+    // 创建过滤代理模型，插入在源 model 和 view 之间
+    m_proxyModel = new ScenarioFilterProxyModel(this);
+    m_proxyModel->setSourceModel(m_treeModel);
+    ui->treeView_Scenario->setModel(m_proxyModel);
+
+    // 搜索框输入 → 代理过滤 → 自动展开所有匹配节点
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_proxyModel->setFilterFixedString(text);
+        // 延迟展开：确保代理模型已完成过滤后再展开所有可见节点
+        QTimer::singleShot(0, this, [this]() {
+            ui->treeView_Scenario->expandAll();
+        });
+    });
 }
 
 void DataReplayWidget::initEntityTable()
@@ -169,8 +204,6 @@ void DataReplayWidget::initEntityTable()
     m_entityModel->setHorizontalHeaderLabels({
         QStringLiteral("ID"),
         QStringLiteral("名称"),
-        QStringLiteral("类型"),
-        QStringLiteral("状态"),
         QStringLiteral("映射ID")
     });
 
@@ -179,8 +212,6 @@ void DataReplayWidget::initEntityTable()
     // 设置列宽
     ui->tableView_Entities->setColumnWidth(Col_ID, 80);
     ui->tableView_Entities->setColumnWidth(Col_Name, 120);
-    ui->tableView_Entities->setColumnWidth(Col_Type, 80);
-    ui->tableView_Entities->setColumnWidth(Col_Status, 80);
     ui->tableView_Entities->setColumnWidth(Col_MapID, 100);
 }
 
@@ -188,39 +219,79 @@ void DataReplayWidget::initEntityTable()
 
 void DataReplayWidget::refreshScenarioTree()
 {
-    // 启动时自动扫描 dataFiles/ 目录，将找到的想定显示在树形列表中
+    // 启动时递归扫描 dataFiles/ 目录，展示完整的目录树结构
+    // 仅列出文件名，不做文件信息估算（轻量扫描）
     m_treeModel->clear();
     m_treeModel->setHorizontalHeaderLabels(QStringList() << QStringLiteral("文件管理"));
 
-    QList<ScenarioSummary> summaries = m_scenarioMgr->scanScenarios();
+    QString rootPath = m_scenarioMgr->dataFilesRoot();
+    QDir rootDir(rootPath);
 
-    if (summaries.isEmpty()) {
-        LogService::instance().log("WARN", "未找到任何想定文件");
+    if (!rootDir.exists()) {
+        LogService::instance().log("WARN", "dataFiles 目录不存在: " + rootPath);
         return;
     }
 
-    for (const ScenarioSummary &summary : summaries) {
-        // 创建想定父节点
-        auto *scenarioItem = new QStandardItem(summary.name);
-        scenarioItem->setData(summary.filePath, Qt::UserRole);          // 存储文件路径
-        scenarioItem->setData("scenario", Qt::UserRole + 1);            // 节点类型
-        scenarioItem->setData(summary.entityCount, Qt::UserRole + 2);   // 实体数量
+    // 遍历 dataFiles/ 下的所有子目录（每个子目录 = 一个想定）
+    const QFileInfoList scenarioDirs = rootDir.entryInfoList(
+        QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
 
-        // 先不加载完整信息，填入摘要信息到 tooltip
-        scenarioItem->setToolTip(QStringLiteral("想定路径: %1\n实体数量: %2")
-                                 .arg(summary.filePath)
-                                 .arg(summary.entityCount));
+    for (const QFileInfo &dirInfo : scenarioDirs) {
+        QString scenarioDirPath = dirInfo.absoluteFilePath();
+        QString scenarioName = dirInfo.fileName();
 
+        // ---- 想定文件夹节点 ----
+        auto *scenarioItem = new QStandardItem(scenarioName);
+        scenarioItem->setData(scenarioDirPath, Qt::UserRole);
+        scenarioItem->setData("scenariodir", Qt::UserRole + 1);
+        scenarioItem->setToolTip(QStringLiteral("想定目录: %1").arg(scenarioDirPath));
         m_treeModel->invisibleRootItem()->appendRow(scenarioItem);
+
+        QDir scenarioDir(scenarioDirPath);
+
+        // ---- XML 文件子节点 ----
+        const QStringList xmlFiles = scenarioDir.entryList(
+            QStringList() << "*.xml", QDir::Files, QDir::Name);
+        for (const QString &xmlFile : xmlFiles) {
+            QString xmlPath = scenarioDir.absoluteFilePath(xmlFile);
+            auto *xmlItem = new QStandardItem(xmlFile);
+            xmlItem->setData(xmlPath, Qt::UserRole);
+            xmlItem->setData("xmlfile", Qt::UserRole + 1);
+            xmlItem->setToolTip(QStringLiteral("想定文件: %1").arg(xmlPath));
+            scenarioItem->appendRow(xmlItem);
+        }
+
+        // ---- 回放数据文件夹节点 ----
+        QString replayDirPath = scenarioDirPath + "/回放数据";
+        QDir replayDir(replayDirPath);
+        if (replayDir.exists()) {
+            auto *dataFolderItem = new QStandardItem(QStringLiteral("回放数据"));
+            dataFolderItem->setData(replayDirPath, Qt::UserRole);
+            dataFolderItem->setData("datafolder", Qt::UserRole + 1);
+            dataFolderItem->setToolTip(QStringLiteral("回放数据目录: %1").arg(replayDirPath));
+            scenarioItem->appendRow(dataFolderItem);
+
+            // ---- 数据文件子节点（.txt） ----
+            const QStringList txtFiles = replayDir.entryList(
+                QStringList() << "*.txt", QDir::Files, QDir::Name);
+            for (const QString &txtFile : txtFiles) {
+                QString txtPath = replayDir.absoluteFilePath(txtFile);
+                auto *fileItem = new QStandardItem(txtFile);
+                fileItem->setData(txtPath, Qt::UserRole);
+                fileItem->setData("datafile", Qt::UserRole + 1);
+                fileItem->setToolTip(QStringLiteral("数据文件: %1").arg(txtPath));
+                dataFolderItem->appendRow(fileItem);
+            }
+        }
     }
 
     LogService::instance().log("INFO",
-        QStringLiteral("扫描到 %1 个想定").arg(summaries.size()));
+        QStringLiteral("文件树已加载，共 %1 个想定目录").arg(scenarioDirs.size()));
 }
 
 void DataReplayWidget::onLoadScenario()
 {
-    // 获取当前选中项
+    // 获取当前选中项（view 返回 proxy index，需映射到源 model）
     QModelIndexList selected = ui->treeView_Scenario->selectionModel()->selectedIndexes();
     if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("提示"),
@@ -228,7 +299,7 @@ void DataReplayWidget::onLoadScenario()
         return;
     }
 
-    QModelIndex index = selected.first();
+    QModelIndex index = toSourceIndex(selected.first());
     QString filePath = index.data(Qt::UserRole).toString();
     QString nodeType = index.data(Qt::UserRole + 1).toString();
 
@@ -315,9 +386,9 @@ void DataReplayWidget::onLoadScenario()
                 item->appendRow(fileItem);
             }
 
-                // 展开树节点（QTreeView::expand 通过 QModelIndex 展开）
+                // 展开树节点（源索引 → proxy 索引）
                 QModelIndex scenarioIdx = item->index();
-                ui->treeView_Scenario->expand(scenarioIdx);
+                ui->treeView_Scenario->expand(m_proxyModel->mapFromSource(scenarioIdx));
                 break;
         }
     }
@@ -328,7 +399,7 @@ void DataReplayWidget::onLoadScenario()
         int row = m_entityModel->rowCount();
         m_entityModel->insertRow(row);
 
-        // ID/名称/类型/状态 —— 只读不可编辑
+        // ID/名称 —— 只读不可编辑
         auto *idItem = new QStandardItem(entity.id);
         idItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
         m_entityModel->setItem(row, Col_ID, idItem);
@@ -336,14 +407,6 @@ void DataReplayWidget::onLoadScenario()
         auto *nameItem = new QStandardItem(entity.name);
         nameItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
         m_entityModel->setItem(row, Col_Name, nameItem);
-
-        auto *typeItem = new QStandardItem(entity.type);
-        typeItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        m_entityModel->setItem(row, Col_Type, typeItem);
-
-        auto *statusItem = new QStandardItem(entity.status);
-        statusItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        m_entityModel->setItem(row, Col_Status, statusItem);
 
         // 映射ID —— 允许双击编辑
         auto *mapItem = new QStandardItem("");
@@ -353,9 +416,6 @@ void DataReplayWidget::onLoadScenario()
 
     // 加载该想定的映射关系，预填映射值
     loadMappingForCurrentScenario();
-
-    // ---- 更新文件信息面板 ----
-    ui->label_FileInfoValue->setText(QStringLiteral("已加载: %1").arg(scenario->name));
 
     // ---- 更新状态栏 ----
     updateStatusBar();
@@ -372,41 +432,101 @@ void DataReplayWidget::onLoadScenario()
  * @brief 初始化回放引擎
  *
  * 流程：创建 DataFileReader 实例 → 扫描数据文件时间范围 → 连接 NATS →
- * 传入实体 ID 映射表 → 进入 Ready 状态等待开始
+ * 选中数据文件 → 自动解析对应想定 → 初始化引擎 → 进入 Ready 状态。
  */
 void DataReplayWidget::onInit()
 {
-    const Scenario *scenario = m_scenarioMgr->currentScenario();
-    if (!scenario) {
+    // ====== ① 获取选中的数据文件，向上查找对应想定 ======
+    QModelIndexList selected = ui->treeView_Scenario->selectionModel()->selectedIndexes();
+    if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("提示"),
-                                 QStringLiteral("请先加载想定"));
+                                 QStringLiteral("请在左侧文件管理中选择一个数据文件"));
         return;
     }
 
+    QModelIndex index = toSourceIndex(selected.first());
+    QString nodeType = index.data(Qt::UserRole + 1).toString();
+    QString nodePath = index.data(Qt::UserRole).toString();
+
+    if (nodeType != "datafile") {
+        QMessageBox::information(this, QStringLiteral("提示"),
+                                 QStringLiteral("请选择一个数据文件（.txt）"));
+        return;
+    }
+
+    // 选中数据文件 → 向上找想定目录和 XML
+    // 树结构: 想定文件夹 → "回放数据" → 数据文件
+    QModelIndex dataFolderIdx = index.parent();
+    QModelIndex scenarioIdx = dataFolderIdx.parent();
+    QString scenarioDir = scenarioIdx.data(Qt::UserRole).toString();
+
+    QDir dir(scenarioDir);
+    QStringList xmlFiles = dir.entryList(QStringList() << "*.xml", QDir::Files);
+    if (xmlFiles.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("错误"),
+                             QStringLiteral("想定目录下未找到 XML 文件"));
+        return;
+    }
+    QString scenarioXmlPath = dir.absoluteFilePath(xmlFiles.first());
+
+    // ====== ② 解析想定 XML ======
+    if (!m_scenarioMgr->loadScenario(scenarioXmlPath)) {
+        LogService::instance().log("ERROR",
+            QStringLiteral("想定加载失败: %1").arg(scenarioXmlPath));
+        QMessageBox::critical(this, QStringLiteral("错误"),
+                              QStringLiteral("想定加载失败，请检查文件格式"));
+        return;
+    }
+
+    const Scenario *scenario = m_scenarioMgr->currentScenario();
+    if (!scenario) return;
+
+    LogService::instance().log("INFO",
+        QStringLiteral("想定已加载 - %1 (实体:%2)")
+            .arg(scenario->name)
+            .arg(scenario->entities.size()));
+
+    // ====== ③ 更新实体表格 ======
+    m_entityModel->removeRows(0, m_entityModel->rowCount());
+    for (const EntityInfo &entity : scenario->entities) {
+        int row = m_entityModel->rowCount();
+        m_entityModel->insertRow(row);
+
+        auto *idItem = new QStandardItem(entity.id);
+        idItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_ID, idItem);
+
+        auto *nameItem = new QStandardItem(entity.name);
+        nameItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        m_entityModel->setItem(row, Col_Name, nameItem);
+
+        auto *mapItem = new QStandardItem("");
+        mapItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable);
+        m_entityModel->setItem(row, Col_MapID, mapItem);
+    }
+
+    // 加载实体映射
+    loadMappingForCurrentScenario();
+
+    // ====== ④ 初始化回放引擎（仅回放选中的数据文件） ======
     LogService::instance().log("INFO", "正在初始化回放引擎...");
     ui->btn_Init->setEnabled(false);
 
-    // 根据选中的节点决定回放哪些数据文件
-    // 选中数据文件节点 → 只回放该文件
-    // 选中的是想定节点或未选择 → 回放所有文件（传空列表）
-    if (m_selectedDataFiles.isEmpty()) {
-        LogService::instance().log("INFO",
-            QStringLiteral("将回放想定下所有 %1 个数据文件").arg(scenario->dataFiles.size()));
-    } else {
-        LogService::instance().log("INFO",
-            QStringLiteral("将回放选中的 %1 个数据文件").arg(m_selectedDataFiles.size()));
-    }
+    QStringList filesToReplay = QStringList() << nodePath;
+    LogService::instance().log("INFO",
+        QStringLiteral("将回放数据文件: %1").arg(nodePath));
 
-    bool success = m_replayEngine->initialize(scenario, m_selectedDataFiles);
+    bool success = m_replayEngine->initialize(scenario, filesToReplay);
     if (success) {
         m_isInitialized = true;
-        // 将当前实体ID映射传给引擎，回放发送时自动替换
+        m_selectedDataFiles = filesToReplay;
         m_replayEngine->setEntityIdMapping(m_entityIdMapping);
         LogService::instance().log("INFO", "回放引擎初始化完成");
     } else {
         LogService::instance().log("ERROR", "回放引擎初始化失败");
     }
 
+    // ====== ⑤ 更新界面 ======
     updateButtonStates();
     updateStatusBar();
 }
@@ -448,48 +568,16 @@ void DataReplayWidget::onTreeSelectionChanged()
         return;
     }
 
-    QModelIndex index = selected.first();
+    QModelIndex index = toSourceIndex(selected.first());
     QString nodeType = index.data(Qt::UserRole + 1).toString();
+    QString nodePath = index.data(Qt::UserRole).toString();
 
     if (nodeType == "datafile") {
-        QString filePath = index.data(Qt::UserRole).toString();
-        m_selectedDataFiles = QStringList() << filePath;
-
-        QFileInfo fi(filePath);
-        DataFileInfo info = m_scenarioMgr->getDataFileInfo(filePath);
-
-        QString fileSizeStr;
-        if (info.fileSize < 1024) {
-            fileSizeStr = QStringLiteral("%1 B").arg(info.fileSize);
-        } else if (info.fileSize < 1024 * 1024) {
-            fileSizeStr = QStringLiteral("%1 KB").arg(info.fileSize / 1024);
-        } else {
-            fileSizeStr = QStringLiteral("%1 MB").arg(info.fileSize / (1024 * 1024));
-        }
-
-        ui->label_FileInfoValue->setText(
-            QStringLiteral("文件: %1\n大小: %2\n数据条数: %3\n时间: %4 ~ %5")
-                .arg(fi.fileName())
-                .arg(fileSizeStr)
-                .arg(info.recordCount)
-                .arg(info.minTime.toString("HH:mm:ss"))
-                .arg(info.maxTime.toString("HH:mm:ss")));
-    } else if (nodeType == "scenario") {
-        // 选中的是想定节点 → 使用所有数据文件
+        // 选中数据文件 → 仅回放该文件
+        m_selectedDataFiles = QStringList() << nodePath;
+    } else {
+        // 其他节点（文件夹、XML 等）→ 清除选中回放文件
         m_selectedDataFiles.clear();
-        QString filePath = index.data(Qt::UserRole).toString();
-        if (m_scenarioMgr->currentScenario() &&
-            m_scenarioMgr->currentScenario()->filePath == filePath) {
-            const Scenario *sc = m_scenarioMgr->currentScenario();
-            ui->label_FileInfoValue->setText(
-                QStringLiteral("想定: %1\n步长: %2ms\n实体: %3个\n数据文件: %4个")
-                    .arg(sc->name)
-                    .arg(sc->simStepMs)
-                    .arg(sc->entities.size())
-                    .arg(sc->dataFiles.size()));
-        } else {
-            ui->label_FileInfoValue->setText(QStringLiteral("(未加载，点击「加载想定」载入)"));
-        }
     }
 }
 
@@ -565,6 +653,17 @@ void DataReplayWidget::onError(const QString &error)
     QMessageBox::warning(this, QStringLiteral("错误"), error);
 }
 
+void DataReplayWidget::onNatsConnected(bool connected)
+{
+    if (connected) {
+        ui->label_StatusNATS->setText(QStringLiteral("NATS: 已连接"));
+        LogService::instance().log("INFO", "NATS 连接成功");
+    } else {
+        ui->label_StatusNATS->setText(QStringLiteral("NATS: 未连接"));
+        LogService::instance().log("WARN", "NATS 连接断开");
+    }
+}
+
 // ==================== 辅助函数 ====================
 
 void DataReplayWidget::updateButtonStates()
@@ -584,7 +683,7 @@ void DataReplayWidget::updateButtonStates()
 
     switch (state) {
     case ReplayEngine::Idle:
-        ui->btn_Init->setEnabled(hasScenario);
+        ui->btn_Init->setEnabled(true);   // Idle 时始终可初始化（选中节点后一键加载+初始化）
         ui->btn_Start->setEnabled(false);
         ui->btn_Pause->setEnabled(false);
         ui->btn_Resume->setEnabled(false);
@@ -744,4 +843,231 @@ void DataReplayWidget::onSaveMapping()
 
     QMessageBox::information(this, QStringLiteral("提示"),
                              QStringLiteral("映射保存成功，共 %1 条").arg(mappings.size()));
+}
+
+// ==================== 代理模型索引映射 ====================
+
+QModelIndex DataReplayWidget::toSourceIndex(const QModelIndex &viewIndex) const
+{
+    if (!m_proxyModel || !viewIndex.isValid())
+        return viewIndex;
+    return m_proxyModel->mapToSource(viewIndex);
+}
+
+// ==================== 右键菜单 ====================
+
+void DataReplayWidget::onTreeContextMenu(const QPoint &pos)
+{
+    QModelIndex proxyIndex = ui->treeView_Scenario->indexAt(pos);
+    if (!proxyIndex.isValid())
+        return;
+
+    QModelIndex sourceIndex = toSourceIndex(proxyIndex);
+    QString nodeType = sourceIndex.data(Qt::UserRole + 1).toString();
+
+    QMenu menu;
+
+    // 所有节点都支持重命名和删除
+    QAction *renameAction = menu.addAction(QStringLiteral("重命名"));
+    QAction *deleteAction = menu.addAction(QStringLiteral("删除"));
+
+    // 分发重命名：文件夹 vs 文件
+    connect(renameAction, &QAction::triggered, this, [this, sourceIndex, nodeType]() {
+        if (nodeType == "scenariodir" || nodeType == "datafolder")
+            onRenameScenario(sourceIndex);
+        else if (nodeType == "xmlfile" || nodeType == "datafile")
+            onRenameDataFile(sourceIndex);
+    });
+
+    // 分发删除：文件夹（递归删除） vs 文件
+    connect(deleteAction, &QAction::triggered, this, [this, sourceIndex, nodeType]() {
+        if (nodeType == "scenariodir" || nodeType == "datafolder")
+            onDeleteScenario(sourceIndex);
+        else if (nodeType == "xmlfile" || nodeType == "datafile")
+            onDeleteDataFile(sourceIndex);
+    });
+
+    menu.exec(ui->treeView_Scenario->viewport()->mapToGlobal(pos));
+}
+
+// ==================== 重命名 ====================
+
+void DataReplayWidget::onRenameScenario(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString oldName = item->text();
+    QString oldDir = item->data(Qt::UserRole).toString();
+
+    // 弹出输入对话框
+    bool ok = false;
+    QString newName = QInputDialog::getText(
+        this,
+        QStringLiteral("重命名文件夹"),
+        QStringLiteral("请输入新的名称："),
+        QLineEdit::Normal,
+        oldName,
+        &ok);
+
+    if (!ok || newName.isEmpty() || newName == oldName)
+        return;
+
+    QRegularExpression illegalChars(R"([\/\\\:\*\?\"\<\>\|])");
+    if (illegalChars.match(newName).hasMatch()) {
+        QMessageBox::warning(this, QStringLiteral("无效名称"),
+                             QStringLiteral("名称不能包含以下字符: / \\ : * ? \" < > |"));
+        return;
+    }
+
+    // 执行重命名
+    if (!m_scenarioMgr->renameScenario(oldDir, newName)) {
+        QMessageBox::critical(this, QStringLiteral("重命名失败"),
+                              QStringLiteral("无法重命名文件夹，可能正在被占用。"));
+        return;
+    }
+
+    LogService::instance().log("INFO",
+        QStringLiteral("文件夹已重命名: %1 → %2").arg(oldName, newName));
+
+    // 刷新树以反映更改
+    refreshScenarioTree();
+    updateStatusBar();
+}
+
+void DataReplayWidget::onRenameDataFile(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString oldFilePath = item->data(Qt::UserRole).toString();
+    QFileInfo fi(oldFilePath);
+    QString oldFileName = fi.fileName();
+
+    bool ok = false;
+    QString newName = QInputDialog::getText(
+        this,
+        QStringLiteral("重命名数据文件"),
+        QStringLiteral("请输入新的文件名："),
+        QLineEdit::Normal,
+        oldFileName,
+        &ok);
+
+    if (!ok || newName.isEmpty() || newName == oldFileName)
+        return;
+
+    QRegularExpression illegalChars(R"([\/\\\:\*\?\"\<\>\|])");
+    if (illegalChars.match(newName).hasMatch()) {
+        QMessageBox::warning(this, QStringLiteral("无效名称"),
+                             QStringLiteral("文件名不能包含以下字符: / \\ : * ? \" < > |"));
+        return;
+    }
+
+    if (!m_scenarioMgr->renameDataFile(oldFilePath, newName)) {
+        QMessageBox::critical(this, QStringLiteral("重命名失败"),
+                              QStringLiteral("无法重命名文件，可能正在被占用。"));
+        return;
+    }
+
+    LogService::instance().log("INFO",
+        QStringLiteral("文件已重命名: %1 → %2").arg(oldFileName, newName));
+
+    // 刷新树以反映更改
+    refreshScenarioTree();
+}
+
+// ==================== 删除 ====================
+
+void DataReplayWidget::onDeleteScenario(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString name = item->text();
+    int newlinePos = name.indexOf('\n');
+    if (newlinePos >= 0)
+        name = name.left(newlinePos).trimmed();
+
+    QString dirPath = item->data(Qt::UserRole).toString();
+    QFileInfo fi(dirPath);
+    QString scenarioDir = fi.isFile() ? fi.absolutePath() : dirPath;
+
+    // 确认对话框
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        QStringLiteral("确认删除"),
+        QStringLiteral("确定要永久删除想定「%1」及其所有数据文件吗？\n此操作不可恢复！")
+            .arg(name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+
+    if (reply != QMessageBox::Yes)
+        return;
+
+    // 如果删除的是当前加载的想定，先停止引擎
+    if (m_scenarioMgr->currentScenario()) {
+        QFileInfo loadedFi(m_scenarioMgr->currentScenario()->filePath);
+        if (loadedFi.absolutePath() == scenarioDir) {
+            m_replayEngine->stop();
+        }
+    }
+
+    // 执行删除
+    if (!m_scenarioMgr->deleteScenario(scenarioDir)) {
+        QMessageBox::critical(this, QStringLiteral("删除失败"),
+                              QStringLiteral("无法删除文件夹，可能正在被占用。"));
+        return;
+    }
+
+    // 如果当前想定已被删除，清空 UI
+    if (!m_scenarioMgr->currentScenario()) {
+        m_entityModel->removeRows(0, m_entityModel->rowCount());
+        m_entityIdMapping.clear();
+        m_isInitialized = false;
+        m_selectedDataFiles.clear();
+        updateButtonStates();
+        updateStatusBar();
+    }
+
+    LogService::instance().log("INFO",
+        QStringLiteral("文件夹已删除: %1").arg(name));
+
+    // 刷新树以反映更改
+    refreshScenarioTree();
+}
+
+void DataReplayWidget::onDeleteDataFile(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString filePath = item->data(Qt::UserRole).toString();
+    QFileInfo fi(filePath);
+    QString fileName = fi.fileName();
+
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        QStringLiteral("确认删除"),
+        QStringLiteral("确定要永久删除「%1」吗？\n此操作不可恢复！")
+            .arg(fileName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+
+    if (reply != QMessageBox::Yes)
+        return;
+
+    if (!m_scenarioMgr->deleteDataFile(filePath)) {
+        QMessageBox::critical(this, QStringLiteral("删除失败"),
+                              QStringLiteral("无法删除文件，可能正在被占用。"));
+        return;
+    }
+
+    // 从选中跟踪移除
+    m_selectedDataFiles.removeAll(filePath);
+
+    LogService::instance().log("INFO",
+        QStringLiteral("文件已删除: %1").arg(filePath));
+
+    // 刷新树以反映更改
+    refreshScenarioTree();
 }

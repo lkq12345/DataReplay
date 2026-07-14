@@ -137,7 +137,6 @@ DataFileInfo ScenarioMgr::getDataFileInfo(const QString &filePath)
 
 bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
 {
-    // 使用流式解析器，内存友好
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "Cannot open scenario file:" << filePath;
@@ -146,50 +145,76 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
 
     QXmlStreamReader xml(&file);
 
+    // 主循环：按实际 XML 结构分两个区域解析
+    //   <ScenarioInfo>  → 想定元信息（Attribute Name="..." Value="..." 格式）
+    //   <Entities>      → 仿真实体列表（仅提取 ID 和 Name）
     while (!xml.atEnd() && !xml.hasError()) {
         QXmlStreamReader::TokenType token = xml.readNext();
 
         if (token == QXmlStreamReader::StartElement) {
-            // ----- 想定元信息 -----
-            if (xml.name() == QLatin1String("Name")) {
-                scenario.name = xml.readElementText();
-            } else if (xml.name() == QLatin1String("Description")) {
-                scenario.description = xml.readElementText();
-            } else if (xml.name() == QLatin1String("StartTime")) {
-                scenario.startTime = QDateTime::fromString(
-                    xml.readElementText().trimmed(), "yyyy-MM-dd HH:mm:ss");
-            } else if (xml.name() == QLatin1String("EndTime")) {
-                scenario.endTime = QDateTime::fromString(
-                    xml.readElementText().trimmed(), "yyyy-MM-dd HH:mm:ss");
-            } else if (xml.name() == QLatin1String("SimStep")) {
-                scenario.simStepMs = xml.readElementText().toInt();
-            }
-            // ----- 仿真实体 -----
-            else if (xml.name() == QLatin1String("Entity")) {
-                EntityInfo entity;
-                // 实体属性：ID、名称、类型
-                QXmlStreamAttributes attrs = xml.attributes();
-                entity.id   = attrs.value("ID").toString();
-                entity.name = attrs.value("Name").toString();
-                entity.type = attrs.value("type").toString();
 
-                // 读取实体的 <Attribute> 子元素
+            // ========== ScenarioInfo 区域：解析想定元信息 ==========
+            if (xml.name() == QLatin1String("ScenarioInfo")) {
+                // 遍历 <Attribute Name="..." Value="..."/> 子元素，直到 </ScenarioInfo>
                 while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                         xml.name() == QLatin1String("Entity"))) {
+                         xml.name() == QLatin1String("ScenarioInfo"))) {
                     xml.readNext();
 
                     if (xml.tokenType() == QXmlStreamReader::StartElement &&
                         xml.name() == QLatin1String("Attribute")) {
-                        QXmlStreamAttributes attrAttrs = xml.attributes();
-                        entity.x       = attrAttrs.value("X").toDouble();
-                        entity.y       = attrAttrs.value("Y").toDouble();
-                        entity.z       = attrAttrs.value("Z").toDouble();
-                        entity.speed   = attrAttrs.value("Speed").toDouble();
-                        entity.heading = attrAttrs.value("Heading").toDouble();
-                        entity.status  = attrAttrs.value("Status").toString();
+                        QXmlStreamAttributes attrs = xml.attributes();
+                        QString name  = attrs.value("Name").toString();
+                        QString value = attrs.value("Value").toString();
+
+                        if (name == QLatin1String("SceName")) {
+                            scenario.name = value;
+                        } else if (name == QLatin1String("CreateTime")) {
+                            scenario.createTime = value;
+                        } else if (name == QLatin1String("StartTime")) {
+                            // 兼容有无毫秒的两种格式
+                            scenario.startTime = QDateTime::fromString(
+                                value.trimmed(), "yyyy-MM-dd HH:mm:ss");
+                            if (!scenario.startTime.isValid()) {
+                                scenario.startTime = QDateTime::fromString(
+                                    value.trimmed(), "yyyy-MM-dd HH:mm:ss.zzz");
+                            }
+                        } else if (name == QLatin1String("EndTime")) {
+                            scenario.endTime = QDateTime::fromString(
+                                value.trimmed(), "yyyy-MM-dd HH:mm:ss");
+                            if (!scenario.endTime.isValid()) {
+                                scenario.endTime = QDateTime::fromString(
+                                    value.trimmed(), "yyyy-MM-dd HH:mm:ss.zzz");
+                            }
+                        } else if (name == QLatin1String("SimStep")) {
+                            scenario.simStepMs = value.toInt();
+                        }
                     }
                 }
-                scenario.entities.append(entity);
+            }
+
+            // ========== Entities 区域：解析仿真实体列表（仅 ID + Name） ==========
+            else if (xml.name() == QLatin1String("Entities")) {
+                // 遍历 <Entity> 子元素，直到 </Entities>
+                while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                         xml.name() == QLatin1String("Entities"))) {
+                    xml.readNext();
+
+                    if (xml.tokenType() == QXmlStreamReader::StartElement &&
+                        xml.name() == QLatin1String("Entity")) {
+                        EntityInfo entity;
+                        // 只读取实体基本属性：ID、名称
+                        QXmlStreamAttributes entAttrs = xml.attributes();
+                        entity.id   = entAttrs.value("ID").toString();
+                        entity.name = entAttrs.value("Name").toString();
+
+                        // 跳过 Entity 内部的子元素（<Attribute>、<ModelType> 等），不解析
+                        while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                                 xml.name() == QLatin1String("Entity"))) {
+                            xml.readNext();
+                        }
+                        scenario.entities.append(entity);
+                    }
+                }
             }
         }
     }
@@ -201,7 +226,7 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
         return false;
     }
 
-    // 必须至少有心定名称，否则视为解析失败
+    // 必须至少有想定名称，否则视为解析失败
     return !scenario.name.isEmpty();
 }
 
@@ -417,5 +442,126 @@ bool ScenarioMgr::saveEntityIdMapping(const QString &scenarioDir,
 
     qDebug() << "Entity ID mapping saved to:" << mappingPath
              << "total entries:" << existingEntries.size();
+    return true;
+}
+
+// ==================== 文件管理操作 ====================
+
+bool ScenarioMgr::renameScenario(const QString &oldDirPath, const QString &newName)
+{
+    QDir oldDir(oldDirPath);
+    if (!oldDir.exists()) {
+        qWarning() << "场景目录不存在:" << oldDirPath;
+        return false;
+    }
+
+    // 构造新目录路径
+    QString parentPath = QFileInfo(oldDirPath).absolutePath();
+    QString newDirPath = parentPath + "/" + newName;
+
+    if (QDir(newDirPath).exists()) {
+        qWarning() << "目标目录已存在:" << newDirPath;
+        return false;
+    }
+
+    // 仅重命名目录，不修改内部文件（树结构基于文件系统扫描，无需名称绑定）
+    if (!oldDir.rename(oldDirPath, newDirPath)) {
+        qWarning() << "目录重命名失败:" << oldDirPath << "->" << newDirPath;
+        return false;
+    }
+
+    // 如果是当前已加载的想定，更新 XML 文件路径
+    if (m_currentScenario) {
+        QFileInfo loadedFi(m_currentScenario->filePath);
+        if (loadedFi.absolutePath() == oldDirPath) {
+            QString oldXmlName = loadedFi.fileName();
+            m_currentScenario->filePath = newDirPath + "/" + oldXmlName;
+            m_currentScenario->name = newName;
+        }
+    }
+
+    qDebug() << "想定已重命名:" << oldDirPath << "->" << newDirPath;
+    return true;
+}
+
+bool ScenarioMgr::renameDataFile(const QString &oldFilePath, const QString &newName)
+{
+    QFileInfo fi(oldFilePath);
+    QString parentDir = fi.absolutePath();
+
+    // 直接使用用户输入的名称，不强制修改后缀
+    QString newFilePath = parentDir + "/" + newName;
+
+    if (QFile::exists(newFilePath)) {
+        qWarning() << "目标文件已存在:" << newFilePath;
+        return false;
+    }
+
+    if (!QFile::rename(oldFilePath, newFilePath)) {
+        qWarning() << "文件重命名失败:" << oldFilePath << "->" << newFilePath;
+        return false;
+    }
+
+    // 更新当前想定的 dataFiles 列表
+    if (m_currentScenario) {
+        int idx = m_currentScenario->dataFiles.indexOf(oldFilePath);
+        if (idx >= 0)
+            m_currentScenario->dataFiles[idx] = newFilePath;
+    }
+
+    qDebug() << "数据文件已重命名:" << oldFilePath << "->" << newFilePath;
+    return true;
+}
+
+bool ScenarioMgr::deleteScenario(const QString &scenarioDirPath)
+{
+    QDir dir(scenarioDirPath);
+    if (!dir.exists()) {
+        qWarning() << "想定目录不存在:" << scenarioDirPath;
+        return false;
+    }
+
+    // 检查是否正在删除当前已加载的想定
+    bool isCurrentLoaded = false;
+    if (m_currentScenario) {
+        QFileInfo fi(m_currentScenario->filePath);
+        if (fi.absolutePath() == scenarioDirPath)
+            isCurrentLoaded = true;
+    }
+
+    if (!dir.removeRecursively()) {
+        qWarning() << "删除目录失败:" << scenarioDirPath;
+        return false;
+    }
+
+    // 如果删除了当前想定，清除状态
+    if (isCurrentLoaded) {
+        delete m_currentScenario;
+        m_currentScenario = nullptr;
+        emit scenarioUnloaded();
+    }
+
+    qDebug() << "想定已删除:" << scenarioDirPath;
+    return true;
+}
+
+bool ScenarioMgr::deleteDataFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.exists()) {
+        qWarning() << "数据文件不存在:" << filePath;
+        return false;
+    }
+
+    if (!file.remove()) {
+        qWarning() << "删除文件失败:" << filePath;
+        return false;
+    }
+
+    // 从当前想定的 dataFiles 列表中移除
+    if (m_currentScenario)
+        m_currentScenario->dataFiles.removeAll(filePath);
+
+    qDebug() << "数据文件已删除:" << filePath;
     return true;
 }
