@@ -30,7 +30,7 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 | 游标式读取 | **不加载全文到内存**，维护文件游标按需读取 |
 | 超大文件支持 | 支持几百 MB 的数据文件 |
 | 仿真时间窗口 | 按 simTime（仿真时间）窗口切片，一个步长窗口内多条数据 |
-| 智能预扫描 | 快速扫描文件首尾行获取时间范围和估算记录数 |
+| 智能预扫描 | 快速扫描文件首尾行获取时间范围（不估算记录数） |
 
 ### 回放引擎 (ReplayEngine)
 
@@ -76,7 +76,7 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 | 区域 | 说明 |
 |------|------|
 | 文件管理 | QTreeView 树形展示想定和数据文件，支持选中单个文件回放 |
-| 实体配置 | QTableView 表格展示仿真实体（ID/名称/类型/状态/映射ID），支持双击编辑映射值 + 保存按钮 |
+| 实体配置 | QTableView 表格展示仿真实体（ID/名称/映射ID），支持双击编辑映射值 + 保存按钮 |
 | 导调控制 | 初始化/开始/暂停/继续/停止 五按钮，倍速输入(1-100) |
 | 进度显示 | 当前仿真时间 + QProgressBar 进度条 |
 | 日志信息 | QTextEdit 只读日志显示区 |
@@ -86,7 +86,7 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 
 ## 架构设计
 
-### 前后端分离
+### 前后端分离（Facade 模式）
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -94,7 +94,8 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 │                     前端 — UI 层 + 控制编排                      │
 │                                                                │
 │  职责: 界面展示、用户交互、调用后端接口                             │
-│  依赖: 只链接 Server_DataReplay.dll，不接触 NATS                 │
+│  依赖: 只链接 Server_DataReplay.dll                             │
+│        只 include "Server_DataReplay.h"（仅此一个头文件）          │
 └──────────────────────────┬───────────────────────────────────┘
                            │ 函数调用 + Qt 信号/槽
                            ▼
@@ -102,24 +103,33 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 │                  Server_DataReplay (dll)                       │
 │                     后端 — 核心业务引擎                          │
 │                                                                │
-│  职责: 所有业务逻辑 + 数据处理 + NATS 通信                        │
+│  职责: 所有业务逻辑 + 数据处理 + NATS 通信 + Facade 统一入口      │
 │  依赖: libnats.dll (NATS 细节完全封装在内部)                      │
+│                                                                │
+│  Server_DataReplay (Facade) 封装:                               │
+│    ├── ScenarioMgr           ← 想定 XML 解析、目录扫描           │
+│    ├── ReplayEngine          ← 回放状态机、步进、倍速             │
+│    │   ├── DataFileReader    ← 大文件游标式读取（多实例）         │
+│    │   └── Communication_NATS ← NATS 消息发送                   │
+│    └── LogService            ← 日志收集(完全内聚，APP 不感知)     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 模块依赖关系
+### 模块依赖关系（Facade 模式）
 
 ```
 APP_DataReplay (exe)
-  └── 链接 Server_DataReplay.dll
+  ├── 链接 Server_DataReplay.dll
+  └── include 仅 "Server_DataReplay.h"  ← 不感知内部模块
 
 Server_DataReplay (dll)
-  ├── 业务逻辑层
-  │   ├── ScenarioMgr          ← 想定 XML 解析、目录扫描
-  │   ├── ReplayEngine         ← 回放状态机、步进、倍速
-  │   │   ├── DataFileReader   ← 大文件游标式读取（多实例）
-  │   │   └── Communication_NATS ← NATS 消息发送
-  │   └── LogService           ← 日志收集(信号 + 文件)
+  ├── Server_DataReplay (Facade)        ← 统一入口，封装所有内部调用
+  │   ├── ScenarioMgr                   ← 想定管理（含浅解析扫描）
+  │   ├── ReplayEngine                  ← 回放引擎
+  │   │   ├── DataFileReader            ← 大文件游标式读取
+  │   │   └── Communication_NATS        ← NATS 消息发送
+  │   ├── LogService                    ← 日志服务（内聚在 Facade 内）
+  │   └── Communication_NATS            ← NATS 断开自动暂停回放
   └── 第三方依赖
       └── 链接 libnats.dll
 ```
@@ -131,63 +141,80 @@ Server_DataReplay (dll)
 ### 核心类图
 
 ```
-┌──────────────────┐
-│  DataReplayWidget │  (APP 层 - 主界面)
-│  (信号/槽驱动)    │
-└────┬──────┬──────┘
-     │      │
-     │ 使用 │ 使用
-     ▼      ▼
-┌──────────┐ ┌──────────────┐
-│ScenarioMgr│ │ReplayEngine  │  (Server 层)
-│ 想定管理  │ │ 回放引擎      │
-│ 映射读写  │ │ 映射替换      │
-└────┬─────┘ └──┬──┬──┬─────┘
-     │          │  │  │
-     │          │  │  └──► Communication_NATS (NATS 通信单例: 发布/订阅)
-     │          │  │         └──► NATSClient (C 库封装: 订阅生命周期管理)
-     │          │  └────► DataFileReader × N (游标式文件读取)
-     │          └───────► QTimer (步进定时器)
-     │
-     └──────► LogService (单例 - 日志服务)
+┌──────────────────────────┐
+│     DataReplayWidget      │  (APP 层 - 主界面)
+│     (信号/槽驱动)         │
+│     m_server 唯一后端入口  │
+└──────────┬───────────────┘
+           │ 所有后端调用通过 m_server->
+           ▼
+┌──────────────────────────┐
+│  Server_DataReplay(Facade)│  (Server 层 - 统一入口)
+│  ┌──────────┐ ┌─────────┐ │
+│  │ScenarioMgr│ │Replay   │ │
+│  │ 想定管理  │ │Engine   │ │
+│  │ 映射配置  │ │ 回放引擎 │ │
+│  └──────────┘ └──┬──┬───┘ │
+│      LogService  │  │     │
+│       (内聚)     │  │     │
+└──────────────────│──│─────┘
+                   │  │
+          ┌────────┘  └──────────┐
+          ▼                      ▼
+  Communication_NATS    DataFileReader × N
+  (NATS 消息发送)        (游标式文件读取)
+          │
+          ▼
+    NATSClient
+  (C 库封装)
 ```
 
-### 启动流程
+### 启动流程（通过 Facade）
 
 ```
 [程序启动]
-  APP → ScenarioMgr::scanScenarios()
-   ← 扫描 dataFiles/ 目录 → 返回想定摘要列表
+  APP → m_server->initialize(logDir)
+         ├── LogService::setLogFile()     ← 内部
+         └── Communication_NATS::initNATSConnect()
+  APP → m_server->scanScenarios()         ← 浅解析，快速
+   ← 返回想定摘要列表
   APP → 显示在左侧树形列表中
 
 [选择想定 → 点击加载]
-  APP → ScenarioMgr::loadScenario(xmlPath)
+  APP → m_server->loadScenario(xmlPath)
+         └── ScenarioMgr::loadScenario()  ← 内部
    ← 解析 XML → 关联数据文件 → 返回完整想定
-  APP → 展开树形列表 + 填充实体表格
-  APP → ScenarioMgr::loadEntityIdMapping() → 预填映射ID列
+  APP → 展开树形列表 + populateEntityTable()
 
 [编辑映射 → 点击保存]
   APP → 遍历表格收集映射值（仅非空）
-  APP → ScenarioMgr::saveEntityIdMapping() → 增量合并写入 mapping.json
+  APP → m_server->saveEntityIdMapping() → 增量合并写入 mapping.json
 
 [选中数据文件 → 初始化]
-  APP → ReplayEngine::initialize(scenario, {selectedFile})
-         ├── 创建 DataFileReader（只打开选中的数据文件）
-         ├── 扫描文件最晚 simTime → m_dataEndTime
-         ├── 初始化 NATS 连接
-         ├── setEntityIdMapping() → 传入映射表
-         └── 状态 → Ready
+  APP → m_server->initReplay(scenario, files)
+         └── ReplayEngine::initialize()
+              ├── 创建 DataFileReader
+              ├── 扫描时间范围 → m_dataEndTime
+              ├── 初始化 NATS 连接
+              ├── setEntityIdMapping()
+              └── 状态 → Ready
 
 [开始回放]
-  APP → ReplayEngine::start()
-         └── QTimer 启动（间隔 = simStepMs / speed）
-              └── 每次 tick():
-                   ├── DataFileReader::readWindow() 读取窗口数据
-                   ├── 跨文件合并 → 按 simTime 排序
-                   ├── 实体ID映射替换（正则 + QMap 查找）
-                   ├── Communication_NATS::sendMsgData() → NATS 发送
-                   ├── 推进仿真时间
-                   └── 检查结束条件（allEnd / m_dataEndTime）
+  APP → m_server->startReplay()
+         └── ReplayEngine::start()
+              └── QTimer 启动（间隔 = simStepMs / speed）
+                   └── 每次 tick():
+                        ├── DataFileReader::readWindow()
+                        ├── 跨文件合并 → 按 simTime 排序
+                        ├── 实体ID映射替换（正则 + QMap）
+                        ├── Communication_NATS::sendMsgData()
+                        ├── 推进仿真时间
+                        └── 检查结束条件
+
+[NATS 断开]
+  Facade 自动检测 natsConnected(false)
+    ├── 引擎处于 Playing? → 自动暂停回放
+    └── 发射 natsConnected(false) 通知 APP
 ```
 
 ### 回放状态机
@@ -243,12 +270,10 @@ struct DataRecord {
     QString jsonPayload;     // JSON 部分（NATS 发送）
 };
 
-// 数据文件信息
+// 数据文件信息（仅含时间范围，用于回放引擎进度计算和结束判断）
 struct DataFileInfo {
-    QString filePath;
-    qint64 fileSize;
-    quint64 recordCount;
-    QDateTime minTime, maxTime;
+    QDateTime minTime;        // 最早仿真时间
+    QDateTime maxTime;        // 最晚仿真时间
 };
 ```
 
