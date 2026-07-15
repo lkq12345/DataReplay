@@ -3,7 +3,7 @@
  * @brief 数据回放主界面的头文件
  *
  * 定义主窗口类，负责 UI 展示和用户交互。
- * 通过调用后端模块（ScenarioMgr、ReplayEngine）实现业务逻辑。
+ * 通过 Server_DataReplay（Facade）调用后端业务逻辑。
  */
 
 #ifndef DATAREPLAYWIDGET_H
@@ -16,14 +16,13 @@
 #include <QLineEdit>
 #include <QPoint>
 
-#include "ReplayEngine.h"
+#include "Server_DataReplay.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class DataReplayWidget; }
 QT_END_NAMESPACE
 
 // 前置声明
-class ScenarioMgr;
 class ScenarioFilterProxyModel;
 struct Scenario;
 
@@ -83,7 +82,7 @@ private slots:
     void onProgressChanged(double percent);
 
     /** @brief 更新引擎状态 */
-    void onEngineStateChanged(ReplayEngine::State state);
+    void onEngineStateChanged(Server_DataReplay::EngineState state);
 
     /** @brief 回放完成 */
     void onReplayFinished();
@@ -122,6 +121,9 @@ private:
     /** @brief 扫描想定并更新树形列表 */
     void refreshScenarioTree();
 
+    /** @brief 根据想定填充实体表格（复用 onLoadScenario 和 onInit） */
+    void populateEntityTable(const Scenario *scenario);
+
     /** @brief 更新按钮状态（根据当前引擎状态） */
     void updateButtonStates();
 
@@ -136,9 +138,8 @@ private:
 
     Ui::DataReplayWidget *ui;
 
-    // 后端模块
-    ScenarioMgr    *m_scenarioMgr = nullptr;
-    ReplayEngine   *m_replayEngine = nullptr;
+    // 后端 Facade（统一入口）
+    Server_DataReplay *m_server = nullptr;
 
     // 模型
     QStandardItemModel       *m_treeModel = nullptr;

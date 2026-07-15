@@ -1,6 +1,9 @@
 # ===================== 编译输出 =====================
 temp/
 build*/
+debug/
+release/
+object_script.*
 *.o
 *.obj
 *.exe

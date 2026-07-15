@@ -13,7 +13,6 @@
 
 #include "DataFileReader.h"
 
-#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDebug>
@@ -45,21 +44,16 @@ bool DataFileReader::openFile(const QString &filePath)
         return false;
     }
 
-    QFileInfo fi(filePath);
-    m_fileInfo.filePath = fi.absoluteFilePath();
-    m_fileInfo.fileSize = fi.size();
-
     // 重置内部状态
     m_cursorPos = 0;
     m_atEnd = false;
     m_infoScanned = false;
 
-    // 预扫描：获取起止时间、估算总行数
+    // 预扫描：获取起止时间
     scanFileInfo();
 
     qDebug() << "DataFileReader: Opened" << filePath
-             << "size:" << m_fileInfo.fileSize
-             << "records:" << m_fileInfo.recordCount;
+             << "size:" << m_file->size();
 
     return true;
 }
@@ -285,8 +279,7 @@ void DataFileReader::scanFileInfo()
         return;
     }
 
-    qint64 fileSize = m_fileInfo.fileSize;
-    m_fileInfo.recordCount = 0;
+    qint64 fileSize = m_file->size();
     m_infoScanned = true;
 
     // ---- 读取第一行获取起始仿真时间 ----
@@ -295,8 +288,6 @@ void DataFileReader::scanFileInfo()
     if (firstLine.isEmpty()) {
         return;
     }
-
-    m_fileInfo.recordCount++;
 
     QDateTime outerTs;
     QByteArray jsonPart;
@@ -330,7 +321,6 @@ void DataFileReader::scanFileInfo()
         m_file->seek(0);
         QByteArray allData = m_file->readAll();
         QStringList lines = QString::fromUtf8(allData).split('\n', QString::SkipEmptyParts);
-        m_fileInfo.recordCount = lines.size();
         if (!lines.isEmpty()) {
             QString lastLine = lines.last().trimmed();
             QByteArray lastLineBytes = lastLine.toUtf8();
@@ -343,19 +333,10 @@ void DataFileReader::scanFileInfo()
         }
     }
 
-    // ---- 估算总行数（用第一行长度做线性估算） ----
-    if (fileSize > 0 && m_fileInfo.recordCount > 0) {
-        int firstLineLen = firstLine.length();
-        if (firstLineLen > 0) {
-            m_fileInfo.recordCount = (quint64)(fileSize / firstLineLen);
-        }
-    }
-
     // 重置到文件开头，准备正式读取
     m_file->seek(0);
     m_cursorPos = 0;
 
-    qDebug() << "DataFileReader scan:" << m_fileInfo.filePath
-             << "records ~" << m_fileInfo.recordCount
+    qDebug() << "DataFileReader scan:" << m_file->fileName()
              << "time range:" << m_fileInfo.minTime << "-" << m_fileInfo.maxTime;
 }

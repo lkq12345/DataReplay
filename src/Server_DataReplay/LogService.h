@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QString>
 #include <QMutex>
+#include <QTextStream>
 #include "Server_DataReplay_global.h"
 
 /**
@@ -51,10 +52,10 @@ private:
     /** @brief 写入日志文件 */
     void writeToFile(const QString &formatted);
 
-    QFile   *m_logFile = nullptr;
-    QString  m_logDir;
-    QMutex   m_mutex;         //!< 保证多线程环境下日志写入安全
-    bool     m_fileError = false;
+    QFile       *m_logFile = nullptr;
+    QTextStream *m_logStream = nullptr;  //!< 复用 QTextStream，避免每次写日志重新构造
+    QString      m_logDir;
+    mutable QMutex m_mutex;               //!< mutable 允许 const 方法中加锁
 };
 
 #endif // LOGSERVICE_H

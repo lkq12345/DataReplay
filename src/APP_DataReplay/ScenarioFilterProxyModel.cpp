@@ -17,15 +17,15 @@ ScenarioFilterProxyModel::ScenarioFilterProxyModel(QObject *parent)
 bool ScenarioFilterProxyModel::filterAcceptsRow(int sourceRow,
                                                  const QModelIndex &sourceParent) const
 {
-    // 过滤字符串为空 → 全部接受（QRegExp::isEmpty() 在空模式时返回 true）
-    if (filterRegExp().isEmpty())
+    // 过滤字符串为空 → 全部接受
+    if (filterRegularExpression().pattern().isEmpty())
         return true;
 
     // ① 当前行自身是否匹配
     QModelIndex index = sourceModel()->index(sourceRow, filterKeyColumn(), sourceParent);
     QString text = sourceModel()->data(index, filterRole()).toString();
 
-    if (text.contains(filterRegExp().pattern(), filterCaseSensitivity()))
+    if (text.contains(filterRegularExpression()))
         return true;
 
     // ② 递归检查所有子节点——任一子节点匹配则父节点保持可见

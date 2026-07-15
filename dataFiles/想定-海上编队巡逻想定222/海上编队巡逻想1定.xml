@@ -2,12 +2,12 @@
 <Scenario>
     <!-- ===================== 想定元信息 ===================== -->
     <ScenarioInfo>
-        <Name>海上编队巡逻想定2</Name>
-        <Description>包含 1 艘船、10 架飞机和 10 辆汽车的联合巡逻任务</Description>
-        <CreateTime>2026-07-011 14:32:05</CreateTime>
-        <StartTime>2025-07-01 14:32:05</StartTime>
-        <EndTime>2025-07-01 22:32:05</EndTime>
-        <SimStep>100</SimStep>
+        <Attribute Name="Description" Value="包含 1 艘船、10 架飞机和 10 辆汽车的联合巡逻任务"/>
+        <Attribute Name="SceName" Value="海上编队巡逻想定"/>
+        <Attribute Name="CreateTime" Value="2026-07-011 14:32:05"/>
+        <Attribute Name="EndTime" Value="2025-07-01 22:32:05"/>
+        <Attribute Name="StartTime" Value="2025-07-01 14:32:05"/>
+        <Attribute Name="SimStep" Value="100"/>
     </ScenarioInfo>
 
     <!-- ===================== 模型类型定义 ===================== -->

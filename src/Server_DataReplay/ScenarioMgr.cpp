@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTextStream>
+#include <QCoreApplication>
 
 ScenarioMgr::ScenarioMgr(QObject *parent)
     : QObject(parent)
@@ -33,9 +34,8 @@ ScenarioMgr::~ScenarioMgr()
 
 QString ScenarioMgr::dataFilesRoot() const
 {
-    // 从可执行文件所在目录的相对路径定位 dataFiles/
-    // 目录结构：bin/（exe + dll）、dataFiles/（想定数据）
-    return QDir::currentPath() + "/../dataFiles";
+    // 基于可执行文件目录定位 dataFiles/，不受工作目录变化影响
+    return QCoreApplication::applicationDirPath() + "/../dataFiles";
 }
 
 QList<ScenarioSummary> ScenarioMgr::scanScenarios()
@@ -61,9 +61,9 @@ QList<ScenarioSummary> ScenarioMgr::scanScenarios()
         for (const QString &xmlFile : xmlFiles) {
             QString xmlPath = scenarioDir.absoluteFilePath(xmlFile);
 
-            // 快速解析 XML 拿到名称和实体数量（不加载数据文件）
+            // 浅解析：仅取名称和实体数量，跳过实体内部属性
             Scenario tempScenario;
-            if (parseScenarioXml(xmlPath, tempScenario)) {
+            if (parseScenarioXml(xmlPath, tempScenario, true)) {
                 ScenarioSummary summary;
                 summary.name        = tempScenario.name;
                 summary.scenarioDir = dirInfo.absoluteFilePath();
@@ -117,25 +117,7 @@ const Scenario *ScenarioMgr::currentScenario() const
     return m_currentScenario;
 }
 
-DataFileInfo ScenarioMgr::getDataFileInfo(const QString &filePath)
-{
-    DataFileInfo info;
-    info.filePath = filePath;
-    QFileInfo fi(filePath);
-    info.fileSize = fi.size();
-
-    // 估算记录数和时间范围（不加载全文，仅快速扫描）
-    quint64 recordCount = 0;
-    QDateTime minTime, maxTime;
-    estimateDataFileInfo(filePath, recordCount, minTime, maxTime);
-    info.recordCount = recordCount;
-    info.minTime = minTime;
-    info.maxTime = maxTime;
-
-    return info;
-}
-
-bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
+bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario, bool shallow)
 {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -192,27 +174,48 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
                 }
             }
 
-            // ========== Entities 区域：解析仿真实体列表（仅 ID + Name） ==========
+            // ========== Entities 区域：解析仿真实体列表 ==========
             else if (xml.name() == QLatin1String("Entities")) {
-                // 遍历 <Entity> 子元素，直到 </Entities>
-                while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                         xml.name() == QLatin1String("Entities"))) {
-                    xml.readNext();
-
-                    if (xml.tokenType() == QXmlStreamReader::StartElement &&
-                        xml.name() == QLatin1String("Entity")) {
-                        EntityInfo entity;
-                        // 只读取实体基本属性：ID、名称
-                        QXmlStreamAttributes entAttrs = xml.attributes();
-                        entity.id   = entAttrs.value("ID").toString();
-                        entity.name = entAttrs.value("Name").toString();
-
-                        // 跳过 Entity 内部的子元素（<Attribute>、<ModelType> 等），不解析
-                        while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                                 xml.name() == QLatin1String("Entity"))) {
-                            xml.readNext();
+                if (shallow) {
+                    // 浅解析模式：仅计数 Entity 元素，跳过子元素和属性读取
+                    int entityCount = 0;
+                    while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                             xml.name() == QLatin1String("Entities"))) {
+                        xml.readNext();
+                        if (xml.tokenType() == QXmlStreamReader::StartElement &&
+                            xml.name() == QLatin1String("Entity")) {
+                            entityCount++;
+                            // 跳过 Entity 内部所有子元素
+                            while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                                     xml.name() == QLatin1String("Entity"))) {
+                                xml.readNext();
+                            }
                         }
-                        scenario.entities.append(entity);
+                    }
+                    // 用占位实体表示计数（ScenarioSummary 仅使用 entities.size()）
+                    scenario.entities.reserve(entityCount);
+                    for (int i = 0; i < entityCount; ++i)
+                        scenario.entities.append(EntityInfo{});
+                } else {
+                    // 完整解析模式：提取每个 Entity 的 ID 和 Name
+                    while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                             xml.name() == QLatin1String("Entities"))) {
+                        xml.readNext();
+
+                        if (xml.tokenType() == QXmlStreamReader::StartElement &&
+                            xml.name() == QLatin1String("Entity")) {
+                            EntityInfo entity;
+                            QXmlStreamAttributes entAttrs = xml.attributes();
+                            entity.id   = entAttrs.value("ID").toString();
+                            entity.name = entAttrs.value("Name").toString();
+
+                            // 跳过 Entity 内部的子元素，不解析
+                            while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                                     xml.name() == QLatin1String("Entity"))) {
+                                xml.readNext();
+                            }
+                            scenario.entities.append(entity);
+                        }
                     }
                 }
             }
@@ -250,87 +253,6 @@ QStringList ScenarioMgr::findDataFiles(const QString &scenarioDir)
     }
 
     return dataFiles;
-}
-
-void ScenarioMgr::estimateDataFileInfo(const QString &filePath, quint64 &recordCount,
-                                        QDateTime &minTime, QDateTime &maxTime)
-{
-    // 快速估算数据文件的基本信息：起始时间、结束时间、总行数
-    // 设计目标：不加载全文到内存，仅读取首行 + 尾部 4KB 缓冲区
-
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Cannot open data file:" << filePath;
-        return;
-    }
-
-    recordCount = 0;
-    minTime = QDateTime();
-    maxTime = QDateTime();
-    bool firstLine = true;
-
-    // ---- 读取第一行获取起始时间 ----
-    QByteArray firstLineBytes = file.readLine();
-    if (firstLineBytes.isEmpty()) {
-        file.close();
-        return;
-    }
-
-    recordCount++;
-
-    // 解析首行外层时间戳（前 23 字符）
-    QString firstLineStr = QString::fromUtf8(firstLineBytes).trimmed();
-    int spacePos = firstLineStr.indexOf(' ');
-    if (spacePos > 0) {
-        QString tsStr = firstLineStr.left(spacePos);
-        minTime = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss.zzz");
-    }
-
-    // ---- 从文件尾部提取最后一行的时间 ----
-    qint64 fileSize = file.size();
-    const int bufferSize = 4096;
-    QByteArray tailBuffer;
-
-    if (fileSize > bufferSize) {
-        // 大文件：只读取尾部 4KB
-        file.seek(fileSize - bufferSize);
-        tailBuffer = file.read(bufferSize);
-    } else {
-        // 小文件：全量读取
-        file.seek(0);
-        tailBuffer = file.readAll();
-    }
-
-    QString tailStr = QString::fromUtf8(tailBuffer);
-    QStringList lines = tailStr.split('\n', QString::SkipEmptyParts);
-    if (!lines.isEmpty()) {
-        QString lastLine = lines.last().trimmed();
-        int lastSpacePos = lastLine.indexOf(' ');
-        if (lastSpacePos > 0) {
-            QString tsStr = lastLine.left(lastSpacePos);
-            maxTime = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss.zzz");
-        }
-    }
-
-    // ---- 估算总行数：取文件中部的样本，计算平均行字节数 ----
-    const int sampleBufferSize = 8192;
-    qint64 samplePos = fileSize / 2;
-    if (samplePos + sampleBufferSize < fileSize) {
-        file.seek(samplePos);
-        QByteArray sample = file.read(sampleBufferSize);
-        int newlineCount = sample.count('\n');
-        if (newlineCount > 0) {
-            double avgBytesPerLine = (double)sampleBufferSize / newlineCount;
-            recordCount = (quint64)(fileSize / avgBytesPerLine);
-        }
-    } else {
-        // 文件太小：直接数换行符
-        file.seek(0);
-        QByteArray allData = file.readAll();
-        recordCount = allData.count('\n');
-    }
-
-    file.close();
 }
 
 // ==================== 实体ID映射配置 ====================
@@ -405,13 +327,14 @@ bool ScenarioMgr::saveEntityIdMapping(const QString &scenarioDir,
         }
     }
 
-    // ③ 增量合并：遍历新的映射键值对，更新或追加
+    // ③ 增量合并：遍历新的映射键值对，更新或追加（保留现有条目的额外字段）
     for (auto it = newMappings.begin(); it != newMappings.end(); ++it) {
         const QString &curVal = it.key();
         const QString &mapVal = it.value();
 
-        QJsonObject entry;
-        // 智能类型保持：值为纯数字 → JSON 整数；否则 → JSON 字符串
+        // 基于现有条目（如有）做增量更新，不丢弃其他字段
+        QJsonObject entry = existingEntries.value(curVal);
+
         bool curIsInt = false, mapIsInt = false;
         int curInt = curVal.toInt(&curIsInt);
         int mapInt = mapVal.toInt(&mapIsInt);

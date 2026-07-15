@@ -26,12 +26,14 @@ LogService &LogService::instance()
 LogService::LogService()
     : QObject(nullptr)
 {
-    // 默认日志目录：可执行文件同级或工作目录下的 logs/
-    setLogFile(QDir::currentPath() + "/logs");
+    // 延迟到 initialize() 调用 setLogFile() 时再创建日志文件，
+    // 避免在构造阶段用错误的路径创建孤儿日志文件
 }
 
 LogService::~LogService()
 {
+    delete m_logStream;
+    m_logStream = nullptr;
     if (m_logFile) {
         if (m_logFile->isOpen()) {
             m_logFile->close();
@@ -62,7 +64,9 @@ void LogService::setLogFile(const QString &dirPath)
 {
     m_logDir = dirPath;
 
-    // 关闭旧文件（如有），避免同时持有多个文件句柄
+    // 关闭旧文件和流
+    delete m_logStream;
+    m_logStream = nullptr;
     if (m_logFile) {
         if (m_logFile->isOpen()) {
             m_logFile->close();
@@ -78,23 +82,24 @@ void LogService::setLogFile(const QString &dirPath)
     }
 
     // 以当前日期创建日志文件，每天自动滚动
-    // 格式：logs/2026-07-13.log
     QString dateStr = QDateTime::currentDateTime().toString("yyyy-MM-dd");
     QString filePath = m_logDir + "/" + dateStr + ".log";
 
     m_logFile = new QFile(filePath);
     if (!m_logFile->open(QIODevice::Append | QIODevice::Text)) {
         qWarning() << "LogService: Cannot open log file:" << filePath;
-        m_fileError = true;
         delete m_logFile;
         m_logFile = nullptr;
-    } else {
-        m_fileError = false;
+        return;
     }
+
+    // 创建复用的 QTextStream（UTF-8 编码）
+    m_logStream = new QTextStream(m_logFile);
 }
 
 QString LogService::logFilePath() const
 {
+    QMutexLocker locker(&m_mutex);
     if (m_logFile) {
         return m_logFile->fileName();
     }
@@ -110,12 +115,11 @@ QString LogService::formatMessage(const QString &level, const QString &message)
 
 void LogService::writeToFile(const QString &formatted)
 {
-    if (!m_logFile || !m_logFile->isOpen()) {
+    if (!m_logStream || !m_logFile || !m_logFile->isOpen()) {
         return;
     }
 
-    // QTextStream 自动处理编码（UTF-8），追加写入后立即 flush 防止丢失
-    QTextStream stream(m_logFile);
-    stream << formatted << "\n";
-    stream.flush();
+    // 复用成员 QTextStream，追加写入后立即 flush 防止丢失
+    (*m_logStream) << formatted << "\n";
+    m_logStream->flush();
 }

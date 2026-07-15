@@ -14,7 +14,16 @@
 #include <QDateTime>
 #include <QList>
 #include "Server_DataReplay_global.h"
-#include "ScenarioMgr.h"    // for DataFileInfo
+
+/**
+ * @brief 数据文件预扫描信息
+ *
+ * 存储数据文件的时间范围，供回放引擎做进度计算和结束判断。
+ */
+struct DataFileInfo {
+    QDateTime minTime;          //!< 数据文件中的最早仿真时间（读取首行获得）
+    QDateTime maxTime;          //!< 数据文件中的最晚仿真时间（读取尾部获得）
+};
 
 /**
  * @brief 单条数据记录

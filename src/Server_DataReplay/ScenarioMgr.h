@@ -53,20 +53,6 @@ struct ScenarioSummary {
 };
 
 /**
- * @brief 数据文件预扫描信息
- *
- * 快速估算数据文件的基本参数（不加载全文到内存），
- * 用于 UI 展示文件大小、记录条数和时间范围。
- */
-struct DataFileInfo {
-    QString filePath;           //!< 数据文件的绝对路径
-    qint64 fileSize = 0;        //!< 文件大小（字节）
-    quint64 recordCount = 0;    //!< 估算的数据记录总条数（基于平均行长度线性估算）
-    QDateTime minTime;          //!< 数据文件中的最早仿真时间（读取首行获得）
-    QDateTime maxTime;          //!< 数据文件中的最晚仿真时间（读取尾部获得）
-};
-
-/**
  * @brief 想定管理类
  *
  * 负责扫描 dataFiles/ 目录下的想定文件夹，
@@ -88,9 +74,6 @@ public:
 
     /** @brief 获取当前想定完整信息 */
     const Scenario *currentScenario() const;
-
-    /** @brief 获取指定数据文件的预扫描信息 */
-    DataFileInfo getDataFileInfo(const QString &filePath);
 
     /** @brief 获取 dataFiles 根目录路径 */
     QString dataFilesRoot() const;
@@ -121,7 +104,7 @@ public:
     /**
      * @brief 重命名数据文件
      * @param oldFilePath 原数据文件的绝对路径
-     * @param newName     新文件名（自动补 .txt 后缀）
+     * @param newName     新文件名（直接使用用户输入，不强制修改后缀）
      * @return true 重命名成功
      */
     bool renameDataFile(const QString &oldFilePath, const QString &newName);
@@ -145,15 +128,14 @@ signals:
     void scenarioUnloaded();
 
 private:
-    /** @brief 解析想定 XML 文件 */
-    bool parseScenarioXml(const QString &filePath, Scenario &scenario);
+    /**
+     * @brief 解析想定 XML 文件
+     * @param shallow  true=仅解析元信息并计数实体（scanScenarios 用），false=完整解析实体属性
+     */
+    bool parseScenarioXml(const QString &filePath, Scenario &scenario, bool shallow = false);
 
     /** @brief 关联想定目录下的数据文件 */
     QStringList findDataFiles(const QString &scenarioDir);
-
-    /** @brief 估算数据文件的基本信息（不加载全文） */
-    void estimateDataFileInfo(const QString &filePath, quint64 &recordCount,
-                              QDateTime &minTime, QDateTime &maxTime);
 
     Scenario *m_currentScenario = nullptr;
 };
