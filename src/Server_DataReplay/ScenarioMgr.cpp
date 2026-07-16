@@ -61,9 +61,8 @@ QList<ScenarioSummary> ScenarioMgr::scanScenarios()
         for (const QString &xmlFile : xmlFiles) {
             QString xmlPath = scenarioDir.absoluteFilePath(xmlFile);
 
-            // 浅解析：仅取名称和实体数量，跳过实体内部属性
             Scenario tempScenario;
-            if (parseScenarioXml(xmlPath, tempScenario, true)) {
+            if (parseScenarioXml(xmlPath, tempScenario)) {
                 ScenarioSummary summary;
                 summary.name        = tempScenario.name;
                 summary.scenarioDir = dirInfo.absoluteFilePath();
@@ -117,7 +116,7 @@ const Scenario *ScenarioMgr::currentScenario() const
     return m_currentScenario;
 }
 
-bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario, bool shallow)
+bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
 {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -176,46 +175,24 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario, 
 
             // ========== Entities 区域：解析仿真实体列表 ==========
             else if (xml.name() == QLatin1String("Entities")) {
-                if (shallow) {
-                    // 浅解析模式：仅计数 Entity 元素，跳过子元素和属性读取
-                    int entityCount = 0;
-                    while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                             xml.name() == QLatin1String("Entities"))) {
-                        xml.readNext();
-                        if (xml.tokenType() == QXmlStreamReader::StartElement &&
-                            xml.name() == QLatin1String("Entity")) {
-                            entityCount++;
-                            // 跳过 Entity 内部所有子元素
-                            while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                                     xml.name() == QLatin1String("Entity"))) {
-                                xml.readNext();
-                            }
-                        }
-                    }
-                    // 用占位实体表示计数（ScenarioSummary 仅使用 entities.size()）
-                    scenario.entities.reserve(entityCount);
-                    for (int i = 0; i < entityCount; ++i)
-                        scenario.entities.append(EntityInfo{});
-                } else {
-                    // 完整解析模式：提取每个 Entity 的 ID 和 Name
-                    while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                             xml.name() == QLatin1String("Entities"))) {
-                        xml.readNext();
+                // 提取每个 Entity 的 ID 和 Name
+                while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                         xml.name() == QLatin1String("Entities"))) {
+                    xml.readNext();
 
-                        if (xml.tokenType() == QXmlStreamReader::StartElement &&
-                            xml.name() == QLatin1String("Entity")) {
-                            EntityInfo entity;
-                            QXmlStreamAttributes entAttrs = xml.attributes();
-                            entity.id   = entAttrs.value("ID").toString();
-                            entity.name = entAttrs.value("Name").toString();
+                    if (xml.tokenType() == QXmlStreamReader::StartElement &&
+                        xml.name() == QLatin1String("Entity")) {
+                        EntityInfo entity;
+                        QXmlStreamAttributes entAttrs = xml.attributes();
+                        entity.id   = entAttrs.value("ID").toString();
+                        entity.name = entAttrs.value("Name").toString();
 
-                            // 跳过 Entity 内部的子元素，不解析
-                            while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
-                                     xml.name() == QLatin1String("Entity"))) {
-                                xml.readNext();
-                            }
-                            scenario.entities.append(entity);
+                        // 跳过 Entity 内部的子元素，不解析
+                        while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
+                                 xml.name() == QLatin1String("Entity"))) {
+                            xml.readNext();
                         }
+                        scenario.entities.append(entity);
                     }
                 }
             }
@@ -301,9 +278,9 @@ bool ScenarioMgr::saveEntityIdMapping(const QString &scenarioDir,
     if (newMappings.isEmpty())
         return true;
 
-    QString mappingPath = scenarioDir + "/mapping.json";
+    const QString mappingPath = scenarioDir + "/mapping.json";
 
-    // ① 读取现有文件内容（不存在则从空结构开始）
+    // ① 读取现有映射文件
     QJsonObject root;
     QFile file(mappingPath);
     if (file.open(QIODevice::ReadOnly)) {
@@ -313,58 +290,41 @@ bool ScenarioMgr::saveEntityIdMapping(const QString &scenarioDir,
             root = doc.object();
     }
 
-    // ② 将现有"实体ID"数组转为 QMap，key=当前值，value=完整JSON对象（保留其他字段）
-    QMap<QString, QJsonObject> existingEntries;
-    if (root.contains("实体ID")) {
-        QJsonArray oldArray = root["实体ID"].toArray();
-        for (const QJsonValue &entry : oldArray) {
-            if (!entry.isObject())
-                continue;
-            QJsonObject obj = entry.toObject();
-            QString curVal = obj["当前值"].toVariant().toString();
-            if (!curVal.isEmpty())
-                existingEntries[curVal] = obj;
-        }
+    // ② 将现有条目按"当前值"索引
+    QMap<QString, QJsonObject> entries;
+    const QJsonArray oldArray = root["实体ID"].toArray();
+    for (const QJsonValue &val : oldArray) {
+        QJsonObject obj = val.toObject();
+        QString curVal = obj["当前值"].toVariant().toString();
+        if (!curVal.isEmpty())
+            entries[curVal] = obj;
     }
 
-    // ③ 增量合并：遍历新的映射键值对，更新或追加（保留现有条目的额外字段）
+    // ③ 增量合并
     for (auto it = newMappings.begin(); it != newMappings.end(); ++it) {
-        const QString &curVal = it.key();
-        const QString &mapVal = it.value();
-
-        // 基于现有条目（如有）做增量更新，不丢弃其他字段
-        QJsonObject entry = existingEntries.value(curVal);
-
-        bool curIsInt = false, mapIsInt = false;
-        int curInt = curVal.toInt(&curIsInt);
-        int mapInt = mapVal.toInt(&mapIsInt);
-
-        entry["当前值"] = curIsInt ? QJsonValue(curInt) : QJsonValue(curVal);
-        entry["映射值"] = mapIsInt ? QJsonValue(mapInt) : QJsonValue(mapVal);
-
-        existingEntries[curVal] = entry;
+        QJsonObject entry = entries.value(it.key());
+        entry["当前值"] = it.key();
+        entry["映射值"] = it.value();
+        entries[it.key()] = entry;
     }
 
-    // ④ 将合并后的映射表重建为 JSON 数组，写回"实体ID"键
+    // ⑤ 重建数组并写回
     QJsonArray newArray;
-    for (auto it = existingEntries.begin(); it != existingEntries.end(); ++it) {
+    for (auto it = entries.cbegin(); it != entries.cend(); ++it)
         newArray.append(it.value());
-    }
     root["实体ID"] = newArray;
 
-    // ⑤ 格式化写入文件（Indented 美化输出，方便手动编辑）
     QFile outFile(mappingPath);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qWarning() << "Failed to open mapping.json for writing:" << mappingPath;
         return false;
     }
-
-    QJsonDocument doc(root);
-    outFile.write(doc.toJson(QJsonDocument::Indented));
+    // Indented 生成带缩进和换行的格式化 JSON，便于人工阅读和手动编辑
+    outFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     outFile.close();
 
     qDebug() << "Entity ID mapping saved to:" << mappingPath
-             << "total entries:" << existingEntries.size();
+             << "total entries:" << entries.size();
     return true;
 }
 

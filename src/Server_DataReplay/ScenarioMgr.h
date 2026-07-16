@@ -94,10 +94,11 @@ public:
     bool saveEntityIdMapping(const QString &scenarioDir, const QMap<QString, QString> &newMappings);
 
     /**
-     * @brief 重命名想定文件夹及其 XML 文件
+     * @brief 重命名想定文件夹（仅修改目录名，内部文件不变）
      * @param oldDirPath 原想定目录的绝对路径
-     * @param newName    新名称（不含路径前缀）
+     * @param newName    新目录名（不含路径前缀）
      * @return true 重命名成功
+     * @note 若重命名的恰为当前已加载想定，同步更新 m_currentScenario 的路径和名称
      */
     bool renameScenario(const QString &oldDirPath, const QString &newName);
 
@@ -106,6 +107,7 @@ public:
      * @param oldFilePath 原数据文件的绝对路径
      * @param newName     新文件名（直接使用用户输入，不强制修改后缀）
      * @return true 重命名成功
+     * @note 若文件属于当前已加载想定，同步更新 m_currentScenario->dataFiles 中的路径
      */
     bool renameDataFile(const QString &oldFilePath, const QString &newName);
 
@@ -130,9 +132,8 @@ signals:
 private:
     /**
      * @brief 解析想定 XML 文件
-     * @param shallow  true=仅解析元信息并计数实体（scanScenarios 用），false=完整解析实体属性
      */
-    bool parseScenarioXml(const QString &filePath, Scenario &scenario, bool shallow = false);
+    bool parseScenarioXml(const QString &filePath, Scenario &scenario);
 
     /** @brief 关联想定目录下的数据文件 */
     QStringList findDataFiles(const QString &scenarioDir);

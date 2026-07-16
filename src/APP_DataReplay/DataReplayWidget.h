@@ -115,6 +115,9 @@ private:
     /** @brief 初始化实体表格模型 */
     void initEntityTable();
 
+    /** @brief 统一连接所有信号/槽 */
+    void initConnects();
+
     /** @brief 从当前想定目录加载映射并填充映射列 */
     void loadMappingForCurrentScenario();
 
@@ -145,9 +148,6 @@ private:
     QStandardItemModel       *m_treeModel = nullptr;
     ScenarioFilterProxyModel *m_proxyModel = nullptr;  //!< 过滤代理（源 model → view）
     QStandardItemModel       *m_entityModel = nullptr;
-
-    // 搜索
-    QLineEdit *m_searchEdit = nullptr;                 //!< 搜索过滤输入框
 
     // 校验器
     QIntValidator *m_speedValidator = nullptr;

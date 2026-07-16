@@ -60,23 +60,17 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     m_server = new Server_DataReplay(this);
 
     // ==================== 统一初始化后端服务（日志 + NATS） ====================
-    m_server->initialize(QCoreApplication::applicationDirPath() + "/logs");
-
-    // ==================== 文件管理搜索框 ====================
-    // 代码创建搜索框插入到"文件管理"面板顶部，不修改 .ui 文件
-    m_searchEdit = new QLineEdit();
-    m_searchEdit->setPlaceholderText(QStringLiteral("搜索文件..."));
-    m_searchEdit->setClearButtonEnabled(true);
-    ui->verticalLayout_FileMgr->insertWidget(0, m_searchEdit);
+    m_server->initialize(QCoreApplication::applicationDirPath() + "/../logs");
 
     // 启用右键菜单
     ui->treeView_Scenario->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->treeView_Scenario, &QTreeView::customContextMenuRequested,
-            this, &DataReplayWidget::onTreeContextMenu);
 
     // ==================== 初始化模型 ====================
     initTreeModel();
     initEntityTable();
+
+    // ==================== 统一连接信号/槽 ====================
+    initConnects();
 
     // ==================== 倍速输入校验 ====================
     m_speedValidator = new QIntValidator(1, 100, this);
@@ -87,9 +81,37 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     // 日志控件限制最大行数（通过 QTextDocument 设置）
     ui->textEdit_Log->document()->setMaximumBlockCount(1000);
 
-    // ==================== 连接信号/槽 ====================
+    // ==================== 初始界面状态 ====================
+    ui->label_StatusNATS->setText(QStringLiteral("NATS: 连接中..."));
+    updateButtonStates();
+    updateStatusBar();
 
+    // 启动时自动扫描想定
+    refreshScenarioTree();
+
+    m_server->log("INFO", "界面初始化完成");
+}
+
+DataReplayWidget::~DataReplayWidget()
+{
+    // 确保停止回放
+    if (m_server) {
+        m_server->stopReplay();
+    }
+    delete ui;
+}
+
+// ==================== 信号/槽连接 ====================
+
+void DataReplayWidget::initConnects()
+{
     // -- UI 控件信号 --
+
+    // 右键菜单
+    connect(ui->treeView_Scenario, &QTreeView::customContextMenuRequested,
+            this, &DataReplayWidget::onTreeContextMenu);
+
+    // 按钮点击
     connect(ui->btn_Init, &QPushButton::clicked,
             this, &DataReplayWidget::onInit);
     connect(ui->btn_Start, &QPushButton::clicked,
@@ -113,7 +135,16 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     connect(ui->edit_Speed, &QLineEdit::editingFinished,
             this, &DataReplayWidget::onSpeedChanged);
 
-    // -- 日志信号（通过 Facade 转发，不再直接依赖 LogService） --
+    // 搜索框输入 → 代理过滤 → 自动展开所有匹配节点
+    connect(ui->edit_SearchFile, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_proxyModel->setFilterFixedString(text);
+        // 延迟展开：确保代理模型已完成过滤后再展开所有可见节点
+        QTimer::singleShot(0, this, [this]() {
+            ui->treeView_Scenario->expandAll();
+        });
+    });
+
+    // -- 日志信号（通过 Facade 转发） --
     connect(m_server, &Server_DataReplay::newLog,
             this, &DataReplayWidget::appendLog);
 
@@ -132,25 +163,6 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     // -- NATS 连接状态信号（通过 Facade 转发） --
     connect(m_server, &Server_DataReplay::natsConnected,
             this, &DataReplayWidget::onNatsConnected);
-
-    // ==================== 初始界面状态 ====================
-    ui->label_StatusNATS->setText(QStringLiteral("NATS: 连接中..."));
-    updateButtonStates();
-    updateStatusBar();
-
-    // 启动时自动扫描想定
-    refreshScenarioTree();
-
-    m_server->log("INFO", "界面初始化完成");
-}
-
-DataReplayWidget::~DataReplayWidget()
-{
-    // 确保停止回放
-    if (m_server) {
-        m_server->stopReplay();
-    }
-    delete ui;
 }
 
 void DataReplayWidget::closeEvent(QCloseEvent *event)
@@ -174,15 +186,6 @@ void DataReplayWidget::initTreeModel()
     m_proxyModel = new ScenarioFilterProxyModel(this);
     m_proxyModel->setSourceModel(m_treeModel);
     ui->treeView_Scenario->setModel(m_proxyModel);
-
-    // 搜索框输入 → 代理过滤 → 自动展开所有匹配节点
-    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        m_proxyModel->setFilterFixedString(text);
-        // 延迟展开：确保代理模型已完成过滤后再展开所有可见节点
-        QTimer::singleShot(0, this, [this]() {
-            ui->treeView_Scenario->expandAll();
-        });
-    });
 }
 
 void DataReplayWidget::initEntityTable()
@@ -205,7 +208,7 @@ void DataReplayWidget::initEntityTable()
 
 void DataReplayWidget::refreshScenarioTree()
 {
-    // 通过 Facade 调用后端预扫描，复用浅解析能力，不手动遍历文件系统
+    // 通过 Facade 调用后端预扫描，不手动遍历文件系统
     m_treeModel->clear();
     m_treeModel->setHorizontalHeaderLabels(QStringList() << QStringLiteral("文件管理"));
 
@@ -229,7 +232,7 @@ void DataReplayWidget::refreshScenarioTree()
         scenarioItem->setToolTip(QStringLiteral("想定目录: %1").arg(dirPath));
         m_treeModel->invisibleRootItem()->appendRow(scenarioItem);
 
-        // ---- XML 文件子节点（来自 scanScenarios 的浅解析结果） ----
+        // ---- XML 文件子节点 ----
         for (const auto &summary : it.value()) {
             QString xmlName = QFileInfo(summary.filePath).fileName();
             auto *xmlItem = new QStandardItem(xmlName);

@@ -79,6 +79,7 @@ public:
     bool atEnd() const;
 
 signals:
+    /** @brief 读取进度变化信号，发射当前已读取的百分比 */
     void progressChanged(double percent);
 
 private:
