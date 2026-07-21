@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Root>
     <AttrIP IP="127.0.0.1" ></AttrIP>
-    <AttrTOPIC SUBSCRIBETOPIC="SendToOut"></AttrTOPIC>  #订阅主题 
-    <AttrTOPIC PUBLISHTOPIC="DataReplay"></AttrTOPIC>      #发布主题
+    <AttrTOPIC SUBSCRIBETOPIC="SendToOut1"></AttrTOPIC>  #订阅主题 
+    <AttrTOPIC SUBSCRIBETOPIC="SendToOut2"></AttrTOPIC>  #订阅主题 
+    <AttrTOPIC PUBLISHTOPIC="DataReplay1"></AttrTOPIC>      #发布主题
+    <AttrTOPIC PUBLISHTOPIC="DataReplay2"></AttrTOPIC>      #发布主题
 </Root>

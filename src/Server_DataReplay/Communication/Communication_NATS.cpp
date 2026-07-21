@@ -153,12 +153,20 @@ void Communication_NATS::readIPAndTopicConfig()
                     qDebug() << "NATS Server IP:" << m_NatsServerIP;
                 }
             }
-            // 读取AttrTOPIC节点中的TOPIC属性
+            // 读取AttrTOPIC节点：区分订阅主题和发布主题
             else if (xml.name() == QLatin1String("AttrTOPIC")) {
                 QXmlStreamAttributes attributes = xml.attributes();
-                if (attributes.hasAttribute("TOPIC")) {
-                    QString topic = attributes.value("TOPIC").toString();
-                    m_strListTopic.append(topic);
+                if (attributes.hasAttribute("SUBSCRIBETOPIC")) {
+                    QString topic = attributes.value("SUBSCRIBETOPIC").toString();
+                    if (!topic.isEmpty()) {
+                        m_strListTopic.append(topic);
+                    }
+                }
+                if (attributes.hasAttribute("PUBLISHTOPIC")) {
+                    QString topic = attributes.value("PUBLISHTOPIC").toString();
+                    if (!topic.isEmpty()) {
+                        m_strListPublishTopic.append(topic);
+                    }
                 }
             }
         }

@@ -1,19 +1,9 @@
 /**
  * @file ReplayEngine.cpp
- * @brief 回放引擎的实现文件
+ * @brief 回放引擎的实现文件（单文件版本）
  *
- * 实现数据回放的核心状态机和定时步进逻辑：
- *
- * 状态机流转：
- *   Idle → initialize() → Ready → start() → Playing ⇄ pause()/resume() → Paused
- *   Playing/Paused → stop() → Stopped → initialize() → Ready（可重新开始）
- *
- * 每 tick 流程：
- *   ① 从所有 DataFileReader 按时间窗口增量读取数据
- *   ② 跨文件按 simTimestamp 排序
- *   ③ 应用实体 ID 映射替换（正则一次扫描，千组映射无压力）
- *   ④ 通过 NATS 逐条发送
- *   ⑤ 推进仿真时间，检查结束条件
+ * 实现数据回放的核心状态机和定时步进逻辑。
+ * 仅支持单个数据文件，所有多文件相关逻辑已简化为单文件处理。
  */
 
 #include "ReplayEngine.h"
@@ -28,7 +18,6 @@
 ReplayEngine::ReplayEngine(QObject *parent)
     : QObject(parent)
 {
-    // 创建周期定时器（非单次），连接 tick 槽函数
     m_timer = new QTimer(this);
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, &ReplayEngine::tick);
@@ -37,16 +26,14 @@ ReplayEngine::ReplayEngine(QObject *parent)
 ReplayEngine::~ReplayEngine()
 {
     stop();
-
-    // 逐个关闭并销毁所有数据文件读取器
-    for (auto *reader : m_readers) {
-        reader->close();
-        delete reader;
+    if (m_reader) {
+        m_reader->close();
+        delete m_reader;
+        m_reader = nullptr;
     }
-    m_readers.clear();
 }
 
-bool ReplayEngine::initialize(const Scenario *scenario, const QStringList &selectedFiles)
+bool ReplayEngine::initialize(const Scenario *scenario, const QString &selectedFile)
 {
     if (!scenario) {
         emit errorOccurred("初始化失败：想定为空");
@@ -58,63 +45,58 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QStringList &selec
         stop();
     }
 
-    // 清理上一次初始化的 Reader 实例
-    for (auto *reader : m_readers) {
-        reader->close();
-        delete reader;
+    // 清理旧的 Reader 实例
+    if (m_reader) {
+        m_reader->close();
+        delete m_reader;
+        m_reader = nullptr;
     }
-    m_readers.clear();
 
     m_scenario = scenario;
-    m_allReadersAtEnd = false;
 
-    // 确定数据文件列表：如果前端指定了选中文件则只用选中的，否则用想定下全部文件
-    QStringList filesToOpen = selectedFiles.isEmpty() ? scenario->dataFiles : selectedFiles;
-
-    // 为每个数据文件创建独立的 DataFileReader 实例
-    for (const QString &filePath : filesToOpen) {
-        auto *reader = new DataFileReader(this);
-        if (reader->openFile(filePath)) {
-            m_readers.append(reader);
-            connect(reader, &DataFileReader::progressChanged, this, [this](double) {
-                // 预留：可在此汇总各 Reader 的进度做总体进度计算
-            });
-        } else {
-            delete reader;
-            emit logMessage("WARN", QString("无法打开数据文件: %1").arg(filePath));
+    // 确定数据文件路径：如果传入了有效路径则使用，否则使用想定下全部文件的第一个
+    QString filePath = selectedFile;
+    if (filePath.isEmpty()) {
+        if (scenario->dataFiles.isEmpty()) {
+            emit errorOccurred("初始化失败：没有可用的数据文件");
+            m_scenario = nullptr;
+            return false;
         }
+        filePath = scenario->dataFiles.first();
     }
 
-    if (m_readers.isEmpty()) {
-        emit errorOccurred("初始化失败：没有可用的数据文件");
+    m_reader = new DataFileReader(this);
+    if (!m_reader->openFile(filePath)) {
+        delete m_reader;
+        m_reader = nullptr;
+        emit logMessage("WARN", QString("无法打开数据文件: %1").arg(filePath));
+        emit errorOccurred("初始化失败：无法打开数据文件");
         m_scenario = nullptr;
         return false;
     }
 
-    // 扫描所有数据文件的实际最晚 simTime（用于进度条和结束判断）
-    m_dataEndTime = QDateTime();
-    for (auto *reader : m_readers) {
-        DataFileInfo info = reader->fileInfo();
-        if (info.maxTime.isValid()) {
-            if (!m_dataEndTime.isValid() || info.maxTime > m_dataEndTime) {
-                m_dataEndTime = info.maxTime;
-            }
-        }
-    }
+    // 连接进度信号（可选）
+    connect(m_reader, &DataFileReader::progressChanged, this, [this](double) {
+        // 预留
+    });
+
+    // 获取数据文件的实际时间范围
+    DataFileInfo info = m_reader->fileInfo();
+    m_dataStartTime = info.minTime.isValid() ? info.minTime : QDateTime();
+    m_dataEndTime = info.maxTime.isValid() ? info.maxTime : QDateTime();
 
     // 初始化 NATS 连接（内部含重连机制）
     Communication_NATS::getInstance().initNATSConnect();
 
-    // 设置初始仿真时间 = 想定起始时间
-    m_currentSimTime = scenario->startTime;
-    m_windowStart = scenario->startTime;
-    m_maxDataSimTime = QDateTime();   // 重置已发送数据的时间追踪
+    // 设置初始仿真时间 = 数据文件最早时间
+    m_currentSimTime = m_dataStartTime;
+    m_windowStart = m_dataStartTime;
+    m_maxDataSimTime = QDateTime();
     m_state = Ready;
     emit stateChanged(m_state);
-    emit logMessage("INFO", QString("回放引擎初始化完成 - %1 (%2个数据文件, 数据范围: %3 ~ %4)")
+    emit logMessage("INFO", QString("回放引擎初始化完成 - %1 (数据范围: %2 ~ %3)")
                     .arg(scenario->name)
-                    .arg(m_readers.size())
-                    .arg(scenario->startTime.toString("HH:mm:ss"))
+                    .arg(m_dataStartTime.isValid() ? m_dataStartTime.toString("HH:mm:ss.zzz") : "?")
                     .arg(m_dataEndTime.isValid() ? m_dataEndTime.toString("HH:mm:ss.zzz") : "?"));
     emit simTimeChanged(m_currentSimTime);
     emit progressChanged(0.0);
@@ -124,13 +106,12 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QStringList &selec
 
 bool ReplayEngine::start()
 {
-    // 仅 Ready 状态允许开始
     if (m_state != Ready) {
         emit errorOccurred("开始失败：当前状态不允许开始（需要 Ready 状态）");
         return false;
     }
 
-    if (m_readers.isEmpty()) {
+    if (!m_reader) {
         emit errorOccurred("开始失败：没有数据文件");
         return false;
     }
@@ -138,7 +119,6 @@ bool ReplayEngine::start()
     m_state = Playing;
     emit stateChanged(m_state);
 
-    // 按当前倍速计算定时器间隔并启动
     updateTimerInterval();
     m_timer->start();
 
@@ -152,7 +132,6 @@ bool ReplayEngine::pause()
         return false;
     }
 
-    // 暂停定时器但不重置 Reader 状态，支持断点续播
     m_timer->stop();
     m_state = Paused;
     emit stateChanged(m_state);
@@ -169,7 +148,6 @@ bool ReplayEngine::resume()
     m_state = Playing;
     emit stateChanged(m_state);
 
-    // 重新计算间隔（期间用户可能改了倍速）
     updateTimerInterval();
     m_timer->start();
 
@@ -179,25 +157,21 @@ bool ReplayEngine::resume()
 
 bool ReplayEngine::stop()
 {
-    // Ready / Playing / Paused 三种状态均允许停止
     if (m_state != Ready && m_state != Playing && m_state != Paused) {
         return false;
     }
 
     m_timer->stop();
 
-    // 重置所有 Reader 到文件开头，准备下次重新开始
-    for (auto *reader : m_readers) {
-        reader->reset();
+    // 重置 Reader 到文件开头
+    if (m_reader) {
+        m_reader->reset();
     }
-    m_allReadersAtEnd = false;
-
     // 重置仿真时间和进度追踪
-    if (m_scenario) {
-        m_currentSimTime = m_scenario->startTime;
-        m_windowStart = m_scenario->startTime;
-    }
+    m_currentSimTime = m_dataStartTime;
+    m_windowStart = m_dataStartTime;
     m_maxDataSimTime = QDateTime();
+    m_dataStartTime = QDateTime();
     m_dataEndTime = QDateTime();
 
     m_state = Stopped;
@@ -211,15 +185,13 @@ bool ReplayEngine::stop()
 
 void ReplayEngine::setSpeed(int speed)
 {
-    // 限定范围 1~100 倍速
     if (speed < 1) speed = 1;
-    if (speed > 100) speed = 100;
+    if (speed > 10) speed = 10;
 
     if (m_speed != speed) {
         m_speed = speed;
         emit logMessage("INFO", QString("倍速已设置为 %1x").arg(speed));
 
-        // 播放中立即生效：停止定时器 → 重算间隔 → 重启
         if (m_state == Playing) {
             updateTimerInterval();
             m_timer->start();
@@ -229,7 +201,6 @@ void ReplayEngine::setSpeed(int speed)
 
 void ReplayEngine::setEntityIdMapping(const QMap<QString, QString> &mapping)
 {
-    // 存储映射表，在每次 tick 中应用（修改映射后重新初始化回放即可生效）
     m_entityIdMapping = mapping;
     if (!mapping.isEmpty()) {
         emit logMessage("INFO", QString("已设置实体ID映射，共 %1 条").arg(mapping.size()));
@@ -253,19 +224,17 @@ QDateTime ReplayEngine::currentSimTime() const
 
 double ReplayEngine::overallProgress() const
 {
-    // 以数据文件的实际 simTime 范围为基准计算进度，不使用想定 endTime
-    // 这样可以避免想定结束时间远大于数据范围时进度条长时间停滞
-    if (!m_scenario || !m_dataEndTime.isValid() ||
-        m_scenario->startTime >= m_dataEndTime) {
+    if (!m_dataStartTime.isValid() || !m_dataEndTime.isValid() ||
+        m_dataStartTime >= m_dataEndTime) {
         return 0.0;
     }
 
-    qint64 totalMs = m_scenario->startTime.msecsTo(m_dataEndTime);
+    qint64 totalMs = m_dataStartTime.msecsTo(m_dataEndTime);
     if (totalMs <= 0) {
         return 0.0;
     }
 
-    qint64 elapsedMs = m_scenario->startTime.msecsTo(m_currentSimTime);
+    qint64 elapsedMs = m_dataStartTime.msecsTo(m_currentSimTime);
     return qBound(0.0, (double)elapsedMs / totalMs * 100.0, 100.0);
 }
 
@@ -287,25 +256,21 @@ void ReplayEngine::updateTimerInterval()
         return;
     }
 
-    // 定时器物理间隔 = 仿真步长(ms) / 倍速
-    // 例：100ms 步长 × 10x 倍速 = 10ms 物理间隔
     int intervalMs = m_scenario->simStepMs / m_speed;
-    if (intervalMs < 1) intervalMs = 1;  // 最小保护：1ms（防止 100x 时 timer 频率过高）
-
+    if (intervalMs < 1) intervalMs = 1;
     m_timer->setInterval(intervalMs);
 }
 
 void ReplayEngine::tick()
 {
-    if (!m_scenario || m_state != Playing) {
+    if (!m_scenario || m_state != Playing || !m_reader) {
         return;
     }
 
     QDateTime windowStart = m_currentSimTime;
     int stepMs = m_scenario->simStepMs;
 
-    // ======== 前置判断：仿真时间是否已超过数据实际范围 ========
-    // 基于初始化时扫描的数据文件最晚 simTime 做精确判断
+    // 前置判断：仿真时间是否已超过数据实际范围
     if (m_dataEndTime.isValid() && windowStart > m_dataEndTime) {
         m_currentSimTime = m_dataEndTime;
         emit simTimeChanged(m_currentSimTime);
@@ -314,123 +279,144 @@ void ReplayEngine::tick()
         m_state = Stopped;
         emit stateChanged(m_state);
         emit replayFinished();
-        emit logMessage("INFO", "回放完成 - 仿真时间已超过所有数据范围");
+        emit logMessage("INFO", "回放完成 - 仿真时间已超过数据范围");
         return;
     }
 
-    // 从所有 Reader 读取窗口数据
+    // 从唯一 Reader 读取窗口数据
     QList<DataRecord> allRecords;
-
-    for (auto *reader : m_readers) {
-        if (reader->atEnd()) {
-            continue;
-        }
-
-        QList<DataRecord> records = reader->readWindow(windowStart, stepMs);
-        if (!records.isEmpty()) {
-            allRecords.append(records);
-        }
+    if (!m_reader->atEnd()) {
+        allRecords = m_reader->readWindow(windowStart, stepMs);
     }
 
-    // 检查是否所有 Reader 都已到达末尾
-    bool allEnd = true;
-    for (auto *reader : m_readers) {
-        if (!reader->atEnd()) {
-            allEnd = false;
-            break;
-        }
-    }
-    m_allReadersAtEnd = allEnd;
-
-    // 跨文件排序 + NATS 发送
+    // 处理读取到的数据
     if (!allRecords.isEmpty()) {
+        // 按时间排序（单文件通常有序，但保留安全）
         std::sort(allRecords.begin(), allRecords.end(),
                   [](const DataRecord &a, const DataRecord &b) {
                       return a.simTimestamp < b.simTimestamp;
                   });
 
-        // 更新已发送数据的最大 simTime
+        // 更新已发送数据最大时间
         const QDateTime &lastSimTime = allRecords.last().simTimestamp;
         if (!m_maxDataSimTime.isValid() || lastSimTime > m_maxDataSimTime) {
             m_maxDataSimTime = lastSimTime;
         }
 
-        // ======== 实体ID映射替换 ========
+        // ============================================================
+        // 实体ID映射替换
         //
-        // 将回放数据 JSON 中的原始实体 ID 替换为映射值。
-        // 例如："entity":"1001" → "entity":"57001"
+        // 目的：回放数据中 JSON payload 的实体ID是原始值（如 "entity":"car_001"），
+        //       下游订阅者可能期望收到映射后的ID（如 "entity":"car_001_mapped"）。
+        //       本段在每条数据发送前，将 JSON 中所有 "entity":"<原始ID>" 替换为映射值。
         //
-        // 性能策略：正则一次扫描找出所有 "entity":"<值>" 位置，
-        // 逐个查 QMap 替换。复杂度 O(记录数 × 单条长度)，
-        // 而非嵌套遍历映射表的 O(记录数 × 映射条目数 × 单条长度)。
-        // 千组映射、百条数据下，单帧替换耗时约 0.01ms。
+        // 效率设计要点：
+        //   1. static const 正则 —— 编译一次，所有 tick() 共享，避免重复编译开销
+        //   2. hasNext() 预检 —— 无 entity 字段的记录直接跳过，零字符串操作
+        //   3. midRef() 零拷贝切片 —— 只记录指针+偏移，不产生临时 QString 堆分配
+        //   4. constFind() 只读查找 —— 不会因查找失败而向 QMap 隐式插入条目
+        //   5. 延迟构造 result —— 仅在有匹配时才分配缓冲区，无匹配则原样保留 payload
+        //   6. 单次遍历 —— 逐段拼接，只做一次正则全局扫描和一次最终 result 赋值
         //
+        // 字符串拼接示意（假设 payload = {"entity":"A","entity":"B","val":1}）：
+        //   lastEnd=0                         lastEnd 更新到匹配1的 valEnd
+        //     ↓                                    ↓
+        //   {"entity":"  A  ","entity":"  B  ","val":1}
+        //              ↑    ↑          ↑    ↑
+        //       valStart  valEnd  valStart  valEnd
+        //   ──────→  midRef(0, valStart-0)  追加 "entity":" 之前的胶水部分
+        //            → mapIt.value() 或 原始ID  追加替换后的ID（或保留原ID）
+        //   ──────────────────────────→  midRef(lastEnd)  追加尾部剩余内容
+        // ============================================================
         if (!m_entityIdMapping.isEmpty()) {
-            // 静态正则：编译一次，跨 tick 复用
-            // 匹配模式：固定前缀 "entity":" + 捕获实体 ID（不含引号）+ 后缀 "
-            // 例：输入 "...{\"entity\":\"1001\",\"cmd\":...}" → 捕获到 "1001"
+            // 正则：匹配 JSON 中 "entity":"值" 的模式
+            // 捕获组1 ([^\"]*) 匹配双引号内的实体ID值（非引号的连续字符）
+            // static const 确保正则对象只编译一次，后续每次 tick() 直接复用
             static const QRegularExpression entityRe(QStringLiteral("\"entity\":\"([^\"]*)\""));
 
+            // 按引用遍历，直接修改原始数据，避免 DataRecord 拷贝
             for (DataRecord &record : allRecords) {
-                QString &payload = record.jsonPayload;
+                QString &payload = record.jsonPayload;  // 引用，修改即修改 record
 
-                // 对当前 payload 执行全局匹配，找出所有 entity 字段位置
+                // 对当前 payload 执行全局正则匹配，返回迭代器
+                // 全局匹配会找出字符串中所有符合正则的位置（可能有多处 "entity" 字段）
                 QRegularExpressionMatchIterator matchIt = entityRe.globalMatch(payload);
-                if (!matchIt.hasNext())
-                    continue;  // 该条数据无 entity 字段（如纯 simTime 行），跳过
 
-                // 逐段复制：匹配到的 entity 值替换为映射值，其余原样复制
+                // 快速路径：如果 payload 中没有 "entity" 字段，直接跳过
+                // 不做任何字符串操作，避免无意义的 CPU 和内存开销
+                if (!matchIt.hasNext())
+                    continue;
+
+                // 结果缓冲区 —— 延迟分配，仅当确实存在匹配时才构造
                 QString result;
-                int lastEnd = 0;                  // 上一段末尾在 payload 中的位置
+                int lastEnd = 0;  // 追踪上一次匹配结束的位置（原始字符串中的索引）
+
+                // 遍历 payload 中所有的 "entity":"xxx" 匹配
                 while (matchIt.hasNext()) {
                     QRegularExpressionMatch match = matchIt.next();
-                    int valStart = match.capturedStart(1);  // entity 值的起始位置
-                    int valEnd   = match.capturedEnd(1);    // entity 值的结束位置
 
-                    // ① 复制"匹配段之前"的文本（即 "entity":" 到 entity 值之间的前缀）
+                    // 获取捕获组1（即实体ID值本身，不含引号）在原始字符串中的起止索引
+                    // 例如 payload = {"entity":"car_001"} → capturedStart(1)=11, capturedEnd(1)=18
+                    int valStart = match.capturedStart(1);  // 实体ID值的起始索引
+                    int valEnd   = match.capturedEnd(1);    // 实体ID值的结束索引
+
+                    // 将"上一次匹配结束位置"到"本次实体ID值起始位置"之间的内容原样追加
+                    // midRef() 返回 QStringRef（零拷贝视图），不产生临时对象
+                    // 这部分是 JSON 的"胶水"字符，如 {"entity":" 、 ,"entity":" 等
                     result += payload.midRef(lastEnd, valStart - lastEnd);
 
-                    // ② 取出原始 entity 值，查映射表决定用映射值还是保留原值
+                    // 提取本次匹配到的原始实体ID（如 "car_001"）
                     QString entityId = match.captured(1);
+
+                    // 在映射表中查找（constFind 只读查找，不会隐式插入新条目）
                     auto mapIt = m_entityIdMapping.constFind(entityId);
                     if (mapIt != m_entityIdMapping.constEnd() && !mapIt.value().isEmpty()) {
-                        result += mapIt.value();     // 命中映射 → 替换为映射值
+                        // 找到映射 → 使用替换后的ID
+                        result += mapIt.value();
                     } else {
-                        result += entityId;           // 无映射 → 保持原始 ID 不变
+                        // 未找到或映射值为空 → 保留原始ID（安全兜底）
+                        result += entityId;
                     }
+
+                    // 更新位置指针，跳过已处理的实体ID值，准备处理下一个匹配
                     lastEnd = valEnd;
                 }
-                // ③ 复制最后一段匹配之后的尾部文本
+
+                // 将最后一个匹配之后的所有尾部内容追加到结果
+                // 同样使用 midRef() 零拷贝
                 result += payload.midRef(lastEnd);
+
+                // 用拼接好的结果替换原始 payload
                 payload = result;
             }
         }
 
-        QString replayTopic = "DataReplay";
+        // 发送到 NATS（发布主题从配置文件读取，逐条发到所有发布主题）
+        const QStringList publishTopics = Communication_NATS::getInstance().publishTopics();
         for (const DataRecord &record : allRecords) {
             QByteArray payload = record.jsonPayload.toUtf8();
-            Communication_NATS::getInstance().sendMsgData(
-                (void *)payload.data(), payload.size(), replayTopic);
+            for (const QString &topic : publishTopics) {
+                Communication_NATS::getInstance().sendMsgData(
+                    (void *)payload.data(), payload.size(), topic);
+            }
         }
         emit dataSent(allRecords.size());
     }
 
-    // ======== 在推进 simTime 之前判断结束 ========
-    // （确保最终显示的 simTime 不超过最后一条数据的时间）
-    if (allEnd) {
-        m_currentSimTime = windowStart;   // 停留在当前窗口起始（即最后数据时间）
+    // ======== 结束判断（优先于时间推进） ========
+    if (m_reader->atEnd()) {
+        m_currentSimTime = windowStart;   // 停留在最后一条数据的时间
         emit simTimeChanged(m_currentSimTime);
         emit progressChanged(100.0);
         m_timer->stop();
         m_state = Stopped;
         emit stateChanged(m_state);
         emit replayFinished();
-        emit logMessage("INFO", "回放完成 - 所有数据文件已读取完毕");
+        emit logMessage("INFO", "回放完成 - 数据文件已读取完毕");
         return;
     }
 
     if (m_dataEndTime.isValid() && windowStart >= m_dataEndTime) {
-        // 即使 Reader 没到末尾，仿真时间已到达数据范围终点
         m_currentSimTime = m_dataEndTime;
         emit simTimeChanged(m_currentSimTime);
         emit progressChanged(100.0);
@@ -442,17 +428,8 @@ void ReplayEngine::tick()
         return;
     }
 
-    // 推进仿真时间 + 发射信号（正常路径）
+    // 推进仿真时间
     m_currentSimTime = windowStart.addMSecs(stepMs);
     emit simTimeChanged(m_currentSimTime);
     emit progressChanged(overallProgress());
-
-    // 到达想定的仿真结束时间
-    if (m_currentSimTime >= m_scenario->endTime) {
-        m_timer->stop();
-        m_state = Stopped;
-        emit stateChanged(m_state);
-        emit replayFinished();
-        emit logMessage("INFO", "回放完成 - 已到达想定结束时间");
-    }
 }

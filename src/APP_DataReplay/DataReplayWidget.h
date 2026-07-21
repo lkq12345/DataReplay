@@ -154,7 +154,7 @@ private:
 
     // 状态
     bool m_isInitialized = false;
-    QStringList m_selectedDataFiles;   //!< 当前选中的数据文件列表（可多选）
+    QString m_selectedDataFile;        //!< 当前选中的数据文件（仅支持单选）
 
     // 映射
     QMap<QString, QString> m_entityIdMapping;   //!< 实体ID映射表（当前值 → 映射值）

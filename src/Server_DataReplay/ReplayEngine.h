@@ -43,12 +43,12 @@ public:
     explicit ReplayEngine(QObject *parent = nullptr);
     ~ReplayEngine();
 
-    /**
+     /**
      * @brief 初始化回放引擎（创建 DataFileReader，连接 NATS）
      * @param scenario      想定信息
-     * @param selectedFiles 指定的数据文件列表，为空则使用想定下所有文件
+     * @param selectedFile  指定的数据文件路径，为空则使用想定下全部文件的第一个
      */
-    bool initialize(const Scenario *scenario, const QStringList &selectedFiles = QStringList());
+    bool initialize(const Scenario *scenario, const QString &selectedFile = QString());
 
     /** @brief 开始回放 */
     bool start();
@@ -102,14 +102,14 @@ private:
 
     State           m_state = Idle;
     const Scenario *m_scenario = nullptr;
-    QList<DataFileReader *> m_readers;
+    DataFileReader *m_reader = nullptr;
     QTimer         *m_timer = nullptr;
     QDateTime       m_currentSimTime;
     QDateTime       m_windowStart;     //!< 当前窗口起始时间（数据已读到此位置）
     QDateTime       m_maxDataSimTime;  //!< 已发送数据中最大的 simTime
-    QDateTime       m_dataEndTime;     //!< 所有数据文件的最大 simTime（用于进度和结束判断）
+    QDateTime       m_dataStartTime;   //!< 数据文件的最小 simTime（用于初始化和进度计算）
+    QDateTime       m_dataEndTime;     //!< 数据文件的最大 simTime（用于进度和结束判断）
     int             m_speed = 1;
-    bool            m_allReadersAtEnd = false;
     QMap<QString, QString> m_entityIdMapping;   //!< 实体ID映射表（原始ID → 映射ID）
 };
 

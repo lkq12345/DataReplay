@@ -80,6 +80,9 @@ public:
     /** @brief 查询 NATS 是否已成功连接并完成订阅 */
     bool isConnected() const { return m_bNATSInitialized; }
 
+    /** @brief 获取发布主题列表（从配置文件读取） */
+    QStringList publishTopics() const { return m_strListPublishTopic; }
+
 signals:
     /**
      * @brief NATS 消息接收信号，供 UI 层订阅更新
@@ -105,6 +108,7 @@ private:
     NATSClient*          m_NATSClient;                  //!< NATS 客户端对象，封装底层 NATS 连接
     QString              m_NatsServerIP;                //!< NATS 服务器 IP 地址，从 XML 配置读取
     QStringList          m_strListTopic;                //!< 需要订阅的 NATS 主题列表，从 XML 配置读取
+    QStringList          m_strListPublishTopic;         //!< 需要发布的 NATS 主题列表，从 XML 配置读取
     Communication_Interior* m_pInteriorCommunication;   //!< 内部通信对象指针，用于将 NATS 收到的消息回传给内部通信
 
     // 重连机制相关成员（仅用于初始连接失败的重试，连接成功后由 NATS 内置重连接管）

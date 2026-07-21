@@ -108,7 +108,7 @@ public:
     // ==================== 回放控制（委托 ReplayEngine） ====================
 
     /** @brief 初始化回放引擎（创建 Reader、扫描时间范围、连接 NATS） */
-    bool initReplay(const Scenario *scenario, const QStringList &selectedFiles);
+    bool initReplay(const Scenario *scenario, const QString &selectedFile);
 
     /** @brief 开始回放 */
     bool startReplay();

@@ -73,7 +73,7 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     initConnects();
 
     // ==================== 倍速输入校验 ====================
-    m_speedValidator = new QIntValidator(1, 100, this);
+    m_speedValidator = new QIntValidator(1, 10, this);
     ui->edit_Speed->setValidator(m_speedValidator);
     ui->edit_Speed->setText("1");
 
@@ -408,6 +408,13 @@ void DataReplayWidget::onInit()
         return;
     }
 
+    // 仅支持单选，多选时拒绝
+    if (selected.size() > 1) {
+        QMessageBox::information(this, QStringLiteral("提示"),
+                                 QStringLiteral("仅支持回放单个数据文件，请只选择一个文件"));
+        return;
+    }
+
     QModelIndex index = toSourceIndex(selected.first());
     QString nodeType = index.data(Qt::UserRole + 1).toString();
     QString nodePath = index.data(Qt::UserRole).toString();
@@ -457,14 +464,13 @@ void DataReplayWidget::onInit()
     m_server->log("INFO", "正在初始化回放引擎...");
     ui->btn_Init->setEnabled(false);
 
-    QStringList filesToReplay = QStringList() << nodePath;
     m_server->log("INFO",
         QStringLiteral("将回放数据文件: %1").arg(nodePath));
 
-    bool success = m_server->initReplay(scenario, filesToReplay);
+    bool success = m_server->initReplay(scenario, nodePath);
     if (success) {
         m_isInitialized = true;
-        m_selectedDataFiles = filesToReplay;
+        m_selectedDataFile = nodePath;
         m_server->setEntityIdMapping(m_entityIdMapping);
         m_server->log("INFO", "回放引擎初始化完成");
     } else {
@@ -519,10 +525,10 @@ void DataReplayWidget::onTreeSelectionChanged()
 
     if (nodeType == "datafile") {
         // 选中数据文件 → 仅回放该文件
-        m_selectedDataFiles = QStringList() << nodePath;
+        m_selectedDataFile = nodePath;
     } else {
         // 其他节点（文件夹、XML 等）→ 清除选中回放文件
-        m_selectedDataFiles.clear();
+        m_selectedDataFile.clear();
     }
 }
 
@@ -969,7 +975,7 @@ void DataReplayWidget::onDeleteScenario(const QModelIndex &sourceIndex)
         m_entityModel->removeRows(0, m_entityModel->rowCount());
         m_entityIdMapping.clear();
         m_isInitialized = false;
-        m_selectedDataFiles.clear();
+        m_selectedDataFile.clear();
         updateButtonStates();
         updateStatusBar();
     }
@@ -1007,8 +1013,10 @@ void DataReplayWidget::onDeleteDataFile(const QModelIndex &sourceIndex)
         return;
     }
 
-    // 从选中跟踪移除
-    m_selectedDataFiles.removeAll(filePath);
+    // 如果删除的是当前选中的数据文件，清除选中
+    if (m_selectedDataFile == filePath) {
+        m_selectedDataFile.clear();
+    }
 
     m_server->log("INFO",
         QStringLiteral("文件已删除: %1").arg(filePath));

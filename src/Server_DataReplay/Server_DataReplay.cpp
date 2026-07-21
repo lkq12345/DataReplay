@@ -160,9 +160,9 @@ bool Server_DataReplay::deleteDataFile(const QString &filePath)
 
 // ==================== 回放控制 ====================
 
-bool Server_DataReplay::initReplay(const Scenario *scenario, const QStringList &selectedFiles)
+bool Server_DataReplay::initReplay(const Scenario *scenario, const QString &selectedFile)
 {
-    return m_replayEngine->initialize(scenario, selectedFiles);
+    return m_replayEngine->initialize(scenario, selectedFile);
 }
 
 bool Server_DataReplay::startReplay()
