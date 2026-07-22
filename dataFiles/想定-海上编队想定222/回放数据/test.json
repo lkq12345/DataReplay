@@ -1,3 +1,4 @@
+2026-07-12 09:00:00.000 {"data":{"CMD":"Init","simTime":{"formatted":"2025-07-01 14:32:05","epochMillis":1751380325000},"cmd":"status","speed":8,"heading":45,"fuel":100,"x":50000,"y":50000,"z":0}}
 2026-07-12 09:00:00.000 {"data":{"simTime":{"formatted":"2025-07-01 14:32:05","epochMillis":1751380325000}}}
 2026-07-12 09:00:00.001 {"data":{"entity":"1001","simTime":{"formatted":"2025-07-01 14:32:05","epochMillis":1751380325000},"cmd":"status","speed":8,"heading":45,"fuel":100,"x":50000,"y":50000,"z":0}}
 2026-07-12 09:00:00.003 {"data":{"entity":"2001","simTime":{"formatted":"2025-07-01 14:32:05","epochMillis":1751380325000},"cmd":"status","speed":0,"heading":0,"altitude":3000,"fuel":100,"x":52000,"y":50000}}

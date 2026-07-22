@@ -5,7 +5,7 @@
  * 实现基于文件游标的数据读取器，核心设计原则：
  * - 不将文件全文加载到内存，仅维护 QFile + qint64 游标位置
  * - 通过 readWindow() 按仿真时间窗口增量读取，避免重复扫描
- * - 支持调用方跨文件合并数据时的时间戳排序
+ * - 按文件原始行序输出数据，保证发送顺序与源文件一致
  *
  * 单行数据格式（外层时间戳 + JSON）：
  *   2026-07-12 09:00:00.001 {"data":{"entity":"1001","simTime":{...},"cmd":"status",...}}
@@ -93,6 +93,65 @@ void DataFileReader::reset()
         m_cursorPos = 0;
         m_atEnd = false;
     }
+}
+
+DataRecord DataFileReader::readFirstRecord()
+{
+    DataRecord record;
+
+    if (!m_file || !m_file->isOpen()) {
+        return record;
+    }
+
+    // 确保从文件开头读取
+    m_file->seek(0);
+    m_cursorPos = 0;
+    m_atEnd = false;
+
+    // 跳过空行，读取第一条有效数据行
+    while (!m_file->atEnd()) {
+        QByteArray rawLine = m_file->readLine();
+
+        if (rawLine.isEmpty()) {
+            continue;
+        }
+
+        // 去除行末尾的 \r \n
+        while (rawLine.endsWith('\n') || rawLine.endsWith('\r')) {
+            rawLine.chop(1);
+        }
+
+        if (rawLine.isEmpty()) {
+            continue;
+        }
+
+        // 解析行
+        QDateTime outerTimestamp;
+        QByteArray jsonPart;
+        if (!parseLine(rawLine, outerTimestamp, jsonPart)) {
+            continue;
+        }
+
+        // 提取仿真时间
+        QDateTime simTime = extractSimTime(jsonPart);
+        if (!simTime.isValid()) {
+            simTime = outerTimestamp;
+        }
+
+        // 填充记录
+        record.simTimestamp = simTime;
+        record.fullLine      = QString::fromUtf8(rawLine);
+        record.jsonPayload   = QString::fromUtf8(jsonPart);
+
+        // 游标前进到该行之后
+        m_cursorPos = m_file->pos();
+        m_lastReadTimestamp = simTime;
+        return record;
+    }
+
+    // 文件为空或无有效行
+    m_atEnd = true;
+    return record;  // 返回空的 DataRecord
 }
 
 QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int stepMs)

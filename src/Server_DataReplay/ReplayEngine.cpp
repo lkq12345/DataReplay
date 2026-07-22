@@ -12,7 +12,6 @@
 #include "Communication/Communication_NATS.h"
 
 #include <QDebug>
-#include <algorithm>
 #include <QRegularExpression>
 
 ReplayEngine::ReplayEngine(QObject *parent)
@@ -54,7 +53,7 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QString &selectedF
 
     m_scenario = scenario;
 
-    // 确定数据文件路径：如果传入了有效路径则使用，否则使用想定下全部文件的第一个
+    // 确定数据文件路径：如果传入了有效路径则使用，否则回退到想定的第一个数据文件
     QString filePath = selectedFile;
     if (filePath.isEmpty()) {
         if (scenario->dataFiles.isEmpty()) {
@@ -87,6 +86,37 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QString &selectedF
 
     // 初始化 NATS 连接（内部含重连机制）
     Communication_NATS::getInstance().initNATSConnect();
+
+    // ---- 读取并发送第一条 Init 记录（若存在） ----
+    // 数据文件的第一条记录通常为初始化信息（含 "CMD":"Init"），
+    // 在 initialize() 阶段立即发送，其余数据在 start() 后按仿真步长发送。
+    {
+        DataRecord initRecord = m_reader->readFirstRecord();
+
+        if (!initRecord.fullLine.isEmpty()
+            && initRecord.jsonPayload.contains(QStringLiteral("\"CMD\":\"Init\""))) {
+
+            // 发送到 NATS（发布主题从配置文件读取，逐条发到所有发布主题）
+            const QStringList publishTopics = Communication_NATS::getInstance().publishTopics();
+            QByteArray payload = initRecord.jsonPayload.toUtf8();
+            for (const QString &topic : publishTopics) {
+                Communication_NATS::getInstance().sendMsgData(
+                    (void *)payload.data(), payload.size(), topic);
+            }
+
+            emit dataSent(1);
+            emit logMessage("INFO", QString("初始化消息已发送 (simTime: %1)")
+                            .arg(initRecord.simTimestamp.toString("HH:mm:ss.zzz")));
+
+            // 游标已前进到 Init 行之后，start() 将从第二条记录开始读取
+        } else {
+            // 第一条记录不是 Init 消息 → 重置游标，保留数据不丢失
+            m_reader->reset();
+            if (!initRecord.fullLine.isEmpty()) {
+                emit logMessage("INFO", "首条数据非 Init 消息，将在开始回放时发送");
+            }
+        }
+    }
 
     // 设置初始仿真时间 = 数据文件最早时间
     m_currentSimTime = m_dataStartTime;
@@ -291,13 +321,10 @@ void ReplayEngine::tick()
 
     // 处理读取到的数据
     if (!allRecords.isEmpty()) {
-        // 按时间排序（单文件通常有序，但保留安全）
-        std::sort(allRecords.begin(), allRecords.end(),
-                  [](const DataRecord &a, const DataRecord &b) {
-                      return a.simTimestamp < b.simTimestamp;
-                  });
+        // 数据按文件行序读取（文件中已按时间有序），不进行排序，
+        // 以保证发送顺序与源文件数据先后完全一致。
 
-        // 更新已发送数据最大时间
+        // 更新已发送数据最大时间（文件按时间有序，最后一条即时间最大者）
         const QDateTime &lastSimTime = allRecords.last().simTimestamp;
         if (!m_maxDataSimTime.isValid() || lastSimTime > m_maxDataSimTime) {
             m_maxDataSimTime = lastSimTime;

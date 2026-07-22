@@ -221,9 +221,9 @@ QStringList ScenarioMgr::findDataFiles(const QString &scenarioDir)
         return dataFiles;
     }
 
-    // 按文件名排序收集所有 .txt 数据文件
+    // 按文件名排序收集所有 .json 数据文件
     const QStringList files = replayDir.entryList(
-        QStringList() << "*.txt", QDir::Files, QDir::Name);
+        QStringList() << "*.json", QDir::Files, QDir::Name);
 
     for (const QString &file : files) {
         dataFiles.append(replayDir.absoluteFilePath(file));

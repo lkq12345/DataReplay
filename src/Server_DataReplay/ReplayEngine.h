@@ -15,7 +15,7 @@ struct DataRecord;
 /**
  * @brief 回放引擎
  *
- * 实现回放状态机管理、定时器步进、倍速控制、跨文件数据合并与 NATS 发送。
+ * 实现回放状态机管理、定时器步进、倍速控制、数据窗口读取与 NATS 发送。
  *
  * 状态机：
  *   Idle → initialize() → Ready → start() → Playing → pause() → Paused
@@ -46,7 +46,7 @@ public:
      /**
      * @brief 初始化回放引擎（创建 DataFileReader，连接 NATS）
      * @param scenario      想定信息
-     * @param selectedFile  指定的数据文件路径，为空则使用想定下全部文件的第一个
+     * @param selectedFile  指定的数据文件路径，为空则回退到想定的第一个数据文件
      */
     bool initialize(const Scenario *scenario, const QString &selectedFile = QString());
 

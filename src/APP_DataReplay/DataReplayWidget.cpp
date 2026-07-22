@@ -253,14 +253,14 @@ void DataReplayWidget::refreshScenarioTree()
             dataFolderItem->setToolTip(QStringLiteral("回放数据目录: %1").arg(replayDirPath));
             scenarioItem->appendRow(dataFolderItem);
 
-            const QStringList txtFiles = replayDir.entryList(
-                QStringList() << "*.txt", QDir::Files, QDir::Name);
-            for (const QString &txtFile : txtFiles) {
-                QString txtPath = replayDir.absoluteFilePath(txtFile);
-                auto *fileItem = new QStandardItem(txtFile);
-                fileItem->setData(txtPath, Qt::UserRole);
+            const QStringList jsonFiles = replayDir.entryList(
+                QStringList() << "*.json", QDir::Files, QDir::Name);
+            for (const QString &jsonFile : jsonFiles) {
+                QString jsonPath = replayDir.absoluteFilePath(jsonFile);
+                auto *fileItem = new QStandardItem(jsonFile);
+                fileItem->setData(jsonPath, Qt::UserRole);
                 fileItem->setData("datafile", Qt::UserRole + 1);
-                fileItem->setToolTip(QStringLiteral("数据文件: %1").arg(txtPath));
+                fileItem->setToolTip(QStringLiteral("数据文件: %1").arg(jsonPath));
                 dataFolderItem->appendRow(fileItem);
             }
         }
@@ -421,7 +421,7 @@ void DataReplayWidget::onInit()
 
     if (nodeType != "datafile") {
         QMessageBox::information(this, QStringLiteral("提示"),
-                                 QStringLiteral("请选择一个数据文件（.txt）"));
+                                 QStringLiteral("请选择一个数据文件（.json）"));
         return;
     }
 
