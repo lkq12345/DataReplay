@@ -125,10 +125,6 @@ public:
      */
     bool deleteDataFile(const QString &filePath);
 
-signals:
-    void scenarioLoaded(const Scenario &scenario);
-    void scenarioUnloaded();
-
 private:
     /**
      * @brief 解析想定 XML 文件

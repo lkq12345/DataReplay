@@ -18,8 +18,6 @@
 #include "Service_Communication_Factory.h"
 #include "NATSClient.h"
 
-class Communication_Interior; // 前向声明，避免循环引用
-
 /**
  * @brief NATS 通信类
  *
@@ -71,12 +69,6 @@ public:
      */
     void onMsgHandleToPlatform(const char* subject, void* msg, unsigned int unlength);
 
-    /**
-     * @brief 设置内部通信对象指针，用于将 NATS 消息回传给内部通信
-     * @param pInterior 内部通信对象（Communication_Interior）指针
-     */
-    void setInteriorCommunication(Communication_Interior* pInterior);
-
     /** @brief 查询 NATS 是否已成功连接并完成订阅 */
     bool isConnected() const { return m_bNATSInitialized; }
 
@@ -84,13 +76,6 @@ public:
     QStringList publishTopics() const { return m_strListPublishTopic; }
 
 signals:
-    /**
-     * @brief NATS 消息接收信号，供 UI 层订阅更新
-     * @param subject 消息主题
-     * @param data    消息数据
-     */
-    void messageReceived(const QString& subject, const QByteArray& data);
-
     /**
      * @brief NATS 连接状态变化信号
      * @param connected true 表示已成功连接并完成主题订阅
@@ -109,8 +94,6 @@ private:
     QString              m_NatsServerIP;                //!< NATS 服务器 IP 地址，从 XML 配置读取
     QStringList          m_strListTopic;                //!< 需要订阅的 NATS 主题列表，从 XML 配置读取
     QStringList          m_strListPublishTopic;         //!< 需要发布的 NATS 主题列表，从 XML 配置读取
-    Communication_Interior* m_pInteriorCommunication;   //!< 内部通信对象指针，用于将 NATS 收到的消息回传给内部通信
-
     // 重连机制相关成员（仅用于初始连接失败的重试，连接成功后由 NATS 内置重连接管）
     QTimer*              m_pReconnectTimer;             //!< 重连定时器
     int                  m_nReconnectAttempts;          //!< 当前已尝试的重连次数

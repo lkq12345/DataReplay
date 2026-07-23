@@ -7,13 +7,11 @@
  * - 从 XML 配置文件读取服务器 IP 和订阅主题
  * - 消息的发布（sendMsgData）与接收回调处理
  * - 断线重连机制（指数退避策略）
- * - NATS 消息桥接到内部通信（Communication_Interior）
  */
 
 #include "Communication_NATS.h"
 #include <QDebug>
 #include <QFile>
-#include "Communication_Interior.h"
 
 Communication_NATS& Communication_NATS::getInstance()
 {
@@ -25,7 +23,6 @@ Communication_NATS& Communication_NATS::getInstance()
 Communication_NATS::Communication_NATS()
 {
     // 初始化成员变量
-    m_pInteriorCommunication = nullptr;
     m_NATSClient = new NATSClient();
     // 创建单次触发的重连定时器
     m_pReconnectTimer = new QTimer(this);
@@ -195,19 +192,7 @@ void Communication_NATS::onMsgHandleToPlatform(const char *subject, void *msg, u
         QString topic = QString::fromUtf8(subject);
         QByteArray data(static_cast<const char*>(msg), unlength);
 
-        // 通过内部通信对象将消息分发给平台内部的订阅者
-        if (m_pInteriorCommunication) {
-            m_pInteriorCommunication->sendMsgData(msg, unlength, topic);
-        }
-
-        // 发射信号供UI层订阅更新
-        emit messageReceived(topic, data);
     }
-}
-
-void Communication_NATS::setInteriorCommunication(Communication_Interior* pInterior)
-{
-    m_pInteriorCommunication = pInterior;
 }
 
 void Communication_NATS::attemptReconnect()

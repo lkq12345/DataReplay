@@ -14,8 +14,7 @@
 
 #include "DataReplayWidget.h"
 #include "ui_DataReplayWidget.h"
-
-#include "Server_DataReplay.h"
+#include "EntityFilterProxyModel.h"
 #include "ScenarioFilterProxyModel.h"
 
 #include <QTreeView>
@@ -131,18 +130,21 @@ void DataReplayWidget::initConnects()
     connect(ui->btn_SaveMapping, &QPushButton::clicked,
             this, &DataReplayWidget::onSaveMapping);
 
+    // 实体搜索：按钮点击 + 输入框回车
+    connect(ui->Btn_SearchEntity, &QPushButton::clicked,
+            this, &DataReplayWidget::onSearchEntity);
+    connect(ui->lineEdit_SearchEntity, &QLineEdit::returnPressed,
+            this, &DataReplayWidget::onSearchEntity);
+
     // 倍速输入
     connect(ui->edit_Speed, &QLineEdit::editingFinished,
             this, &DataReplayWidget::onSpeedChanged);
 
-    // 搜索框输入 → 代理过滤 → 自动展开所有匹配节点
-    connect(ui->edit_SearchFile, &QLineEdit::textChanged, this, [this](const QString &text) {
-        m_proxyModel->setFilterFixedString(text);
-        // 延迟展开：确保代理模型已完成过滤后再展开所有可见节点
-        QTimer::singleShot(0, this, [this]() {
-            ui->treeView_Scenario->expandAll();
-        });
-    });
+    // 文件搜索：按钮点击 + 输入框回车
+    connect(ui->edit_SearchFile, &QLineEdit::returnPressed,
+            this, &DataReplayWidget::onSearchFile);
+    connect(ui->Btn_SearchFile, &QPushButton::clicked,
+            this, &DataReplayWidget::onSearchFile);
 
     // -- 日志信号（通过 Facade 转发） --
     connect(m_server, &Server_DataReplay::newLog,
@@ -198,7 +200,10 @@ void DataReplayWidget::initEntityTable()
         QStringLiteral("映射ID")
     });
 
-    ui->tableView_Entities->setModel(m_entityModel);
+    // 过滤代理模型，支持按 ID/名称/映射ID 模糊搜索
+    m_entityProxyModel = new EntityFilterProxyModel(this);
+    m_entityProxyModel->setSourceModel(m_entityModel);
+    ui->tableView_Entities->setModel(m_entityProxyModel);
 
     // 列宽均分
     ui->tableView_Entities->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -467,11 +472,12 @@ void DataReplayWidget::onInit()
     m_server->log("INFO",
         QStringLiteral("将回放数据文件: %1").arg(nodePath));
 
+    // 必须在 initReplay 之前设置映射，确保 Init 记录发送时已应用替换
+    m_server->setEntityIdMapping(m_entityIdMapping);
     bool success = m_server->initReplay(scenario, nodePath);
     if (success) {
         m_isInitialized = true;
         m_selectedDataFile = nodePath;
-        m_server->setEntityIdMapping(m_entityIdMapping);
         m_server->log("INFO", "回放引擎初始化完成");
     } else {
         m_server->log("ERROR", "回放引擎初始化失败");
@@ -711,6 +717,35 @@ void DataReplayWidget::setSimTimeLabel(const QDateTime &time)
         ui->label_SimTime->setText(time.toString("yyyy-MM-dd HH:mm:ss.zzz"));
     } else {
         ui->label_SimTime->setText("--");
+    }
+}
+
+// ==================== 搜索功能 ====================
+
+void DataReplayWidget::onSearchFile()
+{
+    const QString keyword = ui->edit_SearchFile->text().trimmed();
+    if (keyword.isEmpty()) {
+        // 空关键词：清除过滤，显示全部，折叠所有节点
+        m_proxyModel->setFilterRegularExpression(QRegularExpression());
+        ui->treeView_Scenario->collapseAll();
+    } else {
+        // 非空关键词：设置大小写不敏感的模糊匹配正则，展开匹配节点
+        m_proxyModel->setFilterRegularExpression(
+            QRegularExpression(QRegularExpression::escape(keyword),
+                               QRegularExpression::CaseInsensitiveOption));
+        QTimer::singleShot(0, this, [this]() {
+            ui->treeView_Scenario->expandAll();
+        });
+    }
+}
+
+void DataReplayWidget::onSearchEntity()
+{
+    const QString keyword = ui->lineEdit_SearchEntity->text().trimmed();
+    if (m_entityProxyModel) {
+        // setFilterFixedString：空字符串 → 显示全部，非空 → 模糊匹配
+        m_entityProxyModel->setFilterFixedString(keyword);
     }
 }
 

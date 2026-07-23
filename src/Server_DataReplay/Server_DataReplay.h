@@ -18,7 +18,6 @@
 
 #include <QObject>
 #include <QString>
-#include <QStringList>
 #include <QDateTime>
 #include <QMap>
 #include <QList>

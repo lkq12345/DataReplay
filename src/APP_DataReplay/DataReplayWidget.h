@@ -13,7 +13,6 @@
 #include <QStandardItemModel>
 #include <QIntValidator>
 #include <QMap>
-#include <QLineEdit>
 #include <QPoint>
 
 #include "Server_DataReplay.h"
@@ -24,6 +23,7 @@ QT_END_NAMESPACE
 
 // 前置声明
 class ScenarioFilterProxyModel;
+class EntityFilterProxyModel;
 struct Scenario;
 
 /**
@@ -65,6 +65,12 @@ private slots:
 
     /** @brief 保存实体ID映射 */
     void onSaveMapping();
+
+    /** @brief 搜索文件树（按文件名模糊匹配，隐藏不匹配节点） */
+    void onSearchFile();
+
+    /** @brief 搜索实体（ID / 名称 / 映射ID 模糊匹配） */
+    void onSearchEntity();
 
     /** @brief 树形列表选中项变化 */
     void onTreeSelectionChanged();
@@ -148,6 +154,7 @@ private:
     QStandardItemModel       *m_treeModel = nullptr;
     ScenarioFilterProxyModel *m_proxyModel = nullptr;  //!< 过滤代理（源 model → view）
     QStandardItemModel       *m_entityModel = nullptr;
+    EntityFilterProxyModel   *m_entityProxyModel = nullptr;  //!< 实体表过滤代理
 
     // 校验器
     QIntValidator *m_speedValidator = nullptr;

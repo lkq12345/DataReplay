@@ -89,7 +89,6 @@ signals:
     void progressChanged(double percent);
     void replayFinished();
     void errorOccurred(const QString &error);
-    void dataSent(int count);
     void logMessage(const QString &level, const QString &message);
 
 private slots:
@@ -99,6 +98,9 @@ private slots:
 private:
     /** @brief 更新定时器间隔（根据倍速和仿真步长） */
     void updateTimerInterval();
+
+    /** @brief 对 payload 中所有匹配的实体ID模式执行映射替换 */
+    void applyEntityIdMapping(QString &payload);
 
     State           m_state = Idle;
     const Scenario *m_scenario = nullptr;

@@ -26,11 +26,13 @@ INCLUDEPATH += $$PWD/../Server_DataReplay
 SOURCES += \
     main.cpp \
     DataReplayWidget.cpp \
-    ScenarioFilterProxyModel.cpp
+    ScenarioFilterProxyModel.cpp \
+    EntityFilterProxyModel.cpp
 
 HEADERS += \
     DataReplayWidget.h \
-    ScenarioFilterProxyModel.h
+    ScenarioFilterProxyModel.h \
+    EntityFilterProxyModel.h
 
 FORMS += \
     DataReplayWidget.ui

@@ -82,7 +82,6 @@ bool ScenarioMgr::loadScenario(const QString &scenarioFilePath)
     if (m_currentScenario) {
         delete m_currentScenario;
         m_currentScenario = nullptr;
-        emit scenarioUnloaded();
     }
 
     // ② 完整解析 XML 想定文件
@@ -100,10 +99,8 @@ bool ScenarioMgr::loadScenario(const QString &scenarioFilePath)
     QString scenarioDir = fileInfo.absolutePath();
     scenario->dataFiles = findDataFiles(scenarioDir);
 
-    // ④ 保存为当前想定并通知前端
+    // ④ 保存为当前想定
     m_currentScenario = scenario;
-    emit scenarioLoaded(*scenario);
-
     qDebug() << "Scenario loaded:" << scenario->name
              << "entities:" << scenario->entities.size()
              << "dataFiles:" << scenario->dataFiles.size();
@@ -421,7 +418,6 @@ bool ScenarioMgr::deleteScenario(const QString &scenarioDirPath)
     if (isCurrentLoaded) {
         delete m_currentScenario;
         m_currentScenario = nullptr;
-        emit scenarioUnloaded();
     }
 
     qDebug() << "想定已删除:" << scenarioDirPath;

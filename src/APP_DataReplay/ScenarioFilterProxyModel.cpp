@@ -8,9 +8,10 @@
 ScenarioFilterProxyModel::ScenarioFilterProxyModel(QObject *parent)
     : QSortFilterProxyModel(parent)
 {
+    setFilterKeyColumn(0);
     // 大小写不敏感匹配
     setFilterCaseSensitivity(Qt::CaseInsensitive);
-    // 过滤角色：显示文本（列 0）
+    // 过滤角色：显示文本
     setFilterRole(Qt::DisplayRole);
 }
 

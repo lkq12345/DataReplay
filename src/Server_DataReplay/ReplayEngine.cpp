@@ -96,6 +96,9 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QString &selectedF
         if (!initRecord.fullLine.isEmpty()
             && initRecord.jsonPayload.contains(QStringLiteral("\"CMD\":\"Init\""))) {
 
+            // 对 Init 记录的 payload 执行实体ID映射替换
+            applyEntityIdMapping(initRecord.jsonPayload);
+
             // 发送到 NATS（发布主题从配置文件读取，逐条发到所有发布主题）
             const QStringList publishTopics = Communication_NATS::getInstance().publishTopics();
             QByteArray payload = initRecord.jsonPayload.toUtf8();
@@ -104,7 +107,6 @@ bool ReplayEngine::initialize(const Scenario *scenario, const QString &selectedF
                     (void *)payload.data(), payload.size(), topic);
             }
 
-            emit dataSent(1);
             emit logMessage("INFO", QString("初始化消息已发送 (simTime: %1)")
                             .arg(initRecord.simTimestamp.toString("HH:mm:ss.zzz")));
 
@@ -280,6 +282,68 @@ QString ReplayEngine::stateName(State state)
     return "Unknown";
 }
 
+void ReplayEngine::applyEntityIdMapping(QString &payload)
+{
+    if (m_entityIdMapping.isEmpty())
+        return;
+
+    // ============================================================
+    // 实体ID映射替换（支持4种正则模式，依次处理同一payload）
+    //
+    // 模式1: "entity":4012          —— JSON数字值（key="entity"），捕获数字
+    // 模式2: "entityId":[4012]      —— JSON数组值，捕获数组内数字
+    // 模式3: 实体ID：4012           —— 中文标记+全角冒号，捕获数字
+    // 模式4: "id":"4012"            —— JSON字符串值（key="id"），捕获引号内数字
+    //
+    // 注：模式的引号前均有 \\? 可选反斜杠，以兼容 JSON 字符串值
+    //     内部的转义形式（如 \"entityId\":[2010]），确保无论 pattern 出现在
+    //     JSON key 位置还是 JSON string value 内部都能正确匹配。
+    //
+    // 每种模式的捕获组1提取原始ID，在映射表中查找并替换为映射值。
+    // 4个模式按序依次处理，前一个模式的替换结果作为后一个模式的输入。
+    // 模式间互斥（不会匹配到同一段文本），顺序处理安全无副作用。
+    // ============================================================
+    static const QRegularExpression reEntity(      QStringLiteral(R"(\\?"entity\\?":(\d+))"));
+    static const QRegularExpression reEntityIdArr( QStringLiteral(R"(\\?"entityId\\?":\[(\d+)\])"));
+    static const QRegularExpression reChineseId(   QStringLiteral(R"(实体ID：(\d+))"));
+    static const QRegularExpression reIdStr(       QStringLiteral(R"(\\?"id\\?":\\?"(\d+)\\?")"));
+
+    static const QRegularExpression* const patterns[] = {
+        &reEntity, &reEntityIdArr, &reChineseId, &reIdStr
+    };
+
+    // 依次用每种模式匹配并替换
+    for (const auto *re : patterns) {
+        QRegularExpressionMatchIterator matchIt = re->globalMatch(payload);
+        if (!matchIt.hasNext())
+            continue;
+
+        QString result;
+        int lastEnd = 0;
+
+        while (matchIt.hasNext()) {
+            QRegularExpressionMatch match = matchIt.next();
+            int valStart = match.capturedStart(1);
+            int valEnd   = match.capturedEnd(1);
+
+            result += payload.midRef(lastEnd, valStart - lastEnd);
+
+            QString entityId = match.captured(1);
+            auto mapIt = m_entityIdMapping.constFind(entityId);
+            if (mapIt != m_entityIdMapping.constEnd() && !mapIt.value().isEmpty()) {
+                result += mapIt.value();
+            } else {
+                result += entityId;
+            }
+
+            lastEnd = valEnd;
+        }
+
+        result += payload.midRef(lastEnd);
+        payload = result;
+    }
+}
+
 void ReplayEngine::updateTimerInterval()
 {
     if (!m_scenario || m_speed <= 0) {
@@ -330,92 +394,10 @@ void ReplayEngine::tick()
             m_maxDataSimTime = lastSimTime;
         }
 
-        // ============================================================
-        // 实体ID映射替换
-        //
-        // 目的：回放数据中 JSON payload 的实体ID是原始值（如 "entity":"car_001"），
-        //       下游订阅者可能期望收到映射后的ID（如 "entity":"car_001_mapped"）。
-        //       本段在每条数据发送前，将 JSON 中所有 "entity":"<原始ID>" 替换为映射值。
-        //
-        // 效率设计要点：
-        //   1. static const 正则 —— 编译一次，所有 tick() 共享，避免重复编译开销
-        //   2. hasNext() 预检 —— 无 entity 字段的记录直接跳过，零字符串操作
-        //   3. midRef() 零拷贝切片 —— 只记录指针+偏移，不产生临时 QString 堆分配
-        //   4. constFind() 只读查找 —— 不会因查找失败而向 QMap 隐式插入条目
-        //   5. 延迟构造 result —— 仅在有匹配时才分配缓冲区，无匹配则原样保留 payload
-        //   6. 单次遍历 —— 逐段拼接，只做一次正则全局扫描和一次最终 result 赋值
-        //
-        // 字符串拼接示意（假设 payload = {"entity":"A","entity":"B","val":1}）：
-        //   lastEnd=0                         lastEnd 更新到匹配1的 valEnd
-        //     ↓                                    ↓
-        //   {"entity":"  A  ","entity":"  B  ","val":1}
-        //              ↑    ↑          ↑    ↑
-        //       valStart  valEnd  valStart  valEnd
-        //   ──────→  midRef(0, valStart-0)  追加 "entity":" 之前的胶水部分
-        //            → mapIt.value() 或 原始ID  追加替换后的ID（或保留原ID）
-        //   ──────────────────────────→  midRef(lastEnd)  追加尾部剩余内容
-        // ============================================================
-        if (!m_entityIdMapping.isEmpty()) {
-            // 正则：匹配 JSON 中 "entity":"值" 的模式
-            // 捕获组1 ([^\"]*) 匹配双引号内的实体ID值（非引号的连续字符）
-            // static const 确保正则对象只编译一次，后续每次 tick() 直接复用
-            static const QRegularExpression entityRe(QStringLiteral("\"entity\":\"([^\"]*)\""));
-
-            // 按引用遍历，直接修改原始数据，避免 DataRecord 拷贝
-            for (DataRecord &record : allRecords) {
-                QString &payload = record.jsonPayload;  // 引用，修改即修改 record
-
-                // 对当前 payload 执行全局正则匹配，返回迭代器
-                // 全局匹配会找出字符串中所有符合正则的位置（可能有多处 "entity" 字段）
-                QRegularExpressionMatchIterator matchIt = entityRe.globalMatch(payload);
-
-                // 快速路径：如果 payload 中没有 "entity" 字段，直接跳过
-                // 不做任何字符串操作，避免无意义的 CPU 和内存开销
-                if (!matchIt.hasNext())
-                    continue;
-
-                // 结果缓冲区 —— 延迟分配，仅当确实存在匹配时才构造
-                QString result;
-                int lastEnd = 0;  // 追踪上一次匹配结束的位置（原始字符串中的索引）
-
-                // 遍历 payload 中所有的 "entity":"xxx" 匹配
-                while (matchIt.hasNext()) {
-                    QRegularExpressionMatch match = matchIt.next();
-
-                    // 获取捕获组1（即实体ID值本身，不含引号）在原始字符串中的起止索引
-                    // 例如 payload = {"entity":"car_001"} → capturedStart(1)=11, capturedEnd(1)=18
-                    int valStart = match.capturedStart(1);  // 实体ID值的起始索引
-                    int valEnd   = match.capturedEnd(1);    // 实体ID值的结束索引
-
-                    // 将"上一次匹配结束位置"到"本次实体ID值起始位置"之间的内容原样追加
-                    // midRef() 返回 QStringRef（零拷贝视图），不产生临时对象
-                    // 这部分是 JSON 的"胶水"字符，如 {"entity":" 、 ,"entity":" 等
-                    result += payload.midRef(lastEnd, valStart - lastEnd);
-
-                    // 提取本次匹配到的原始实体ID（如 "car_001"）
-                    QString entityId = match.captured(1);
-
-                    // 在映射表中查找（constFind 只读查找，不会隐式插入新条目）
-                    auto mapIt = m_entityIdMapping.constFind(entityId);
-                    if (mapIt != m_entityIdMapping.constEnd() && !mapIt.value().isEmpty()) {
-                        // 找到映射 → 使用替换后的ID
-                        result += mapIt.value();
-                    } else {
-                        // 未找到或映射值为空 → 保留原始ID（安全兜底）
-                        result += entityId;
-                    }
-
-                    // 更新位置指针，跳过已处理的实体ID值，准备处理下一个匹配
-                    lastEnd = valEnd;
-                }
-
-                // 将最后一个匹配之后的所有尾部内容追加到结果
-                // 同样使用 midRef() 零拷贝
-                result += payload.midRef(lastEnd);
-
-                // 用拼接好的结果替换原始 payload
-                payload = result;
-            }
+        // 实体ID映射替换：对每条数据的 payload 执行4种正则模式匹配，
+        // 将匹配到的原始ID替换为映射值。详见 applyEntityIdMapping()。
+        for (DataRecord &record : allRecords) {
+            applyEntityIdMapping(record.jsonPayload);
         }
 
         // 发送到 NATS（发布主题从配置文件读取，逐条发到所有发布主题）
@@ -427,7 +409,6 @@ void ReplayEngine::tick()
                     (void *)payload.data(), payload.size(), topic);
             }
         }
-        emit dataSent(allRecords.size());
     }
 
     // ======== 结束判断（优先于时间推进） ========

@@ -73,19 +73,27 @@
        <property name="title">
         <string>文件管理</string>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_FileMgr">
-        <property name="spacing">
-         <number>4</number>
-        </property>
+       <layout class="QVBoxLayout" name="verticalLayout">
         <item>
-         <widget class="QLineEdit" name="edit_SearchFile">
-          <property name="placeholderText">
-           <string>搜索文件...</string>
-          </property>
-          <property name="clearButtonEnabled">
-           <bool>true</bool>
-          </property>
-         </widget>
+         <layout class="QHBoxLayout" name="horizontalLayout">
+          <item>
+           <widget class="QLineEdit" name="edit_SearchFile">
+            <property name="placeholderText">
+             <string>搜索文件...</string>
+            </property>
+            <property name="clearButtonEnabled">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="Btn_SearchFile">
+            <property name="text">
+             <string>搜索</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
          <widget class="QTreeView" name="treeView_Scenario">
@@ -165,6 +173,16 @@
                </size>
               </property>
              </spacer>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="lineEdit_SearchEntity"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="Btn_SearchEntity">
+              <property name="text">
+               <string>搜索</string>
+              </property>
+             </widget>
             </item>
             <item>
              <widget class="QPushButton" name="btn_SaveMapping">
