@@ -32,9 +32,6 @@ public:
     /** @brief 设置日志文件目录 */
     void setLogFile(const QString &dirPath);
 
-    /** @brief 获取当前日志文件路径 */
-    QString logFilePath() const;
-
 signals:
     /** @brief 新日志信号（供前端 QTextEdit 显示） */
     void newLog(const QString &formattedMessage);

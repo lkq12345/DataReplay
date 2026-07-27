@@ -74,14 +74,8 @@ public:
     /** @brief 获取当前状态 */
     State state() const;
 
-    /** @brief 获取当前仿真时间 */
-    QDateTime currentSimTime() const;
-
     /** @brief 获取整体进度百分比（0~100） */
     double overallProgress() const;
-
-    /** @brief 获取状态名称 */
-    static QString stateName(State state);
 
 signals:
     void stateChanged(ReplayEngine::State newState);

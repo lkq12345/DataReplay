@@ -97,15 +97,6 @@ void LogService::setLogFile(const QString &dirPath)
     m_logStream = new QTextStream(m_logFile);
 }
 
-QString LogService::logFilePath() const
-{
-    QMutexLocker locker(&m_mutex);
-    if (m_logFile) {
-        return m_logFile->fileName();
-    }
-    return QString();
-}
-
 QString LogService::formatMessage(const QString &level, const QString &message)
 {
     // 统一格式：[yyyy-MM-dd HH:mm:ss] [LEVEL] 消息内容

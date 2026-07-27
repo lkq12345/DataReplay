@@ -57,7 +57,6 @@ Server_DataReplay::Server_DataReplay(QObject *parent)
     // ---- NATS 连接状态（缓存 + 断开自动暂停） ----
     connect(&Communication_NATS::getInstance(), &Communication_NATS::natsConnected,
             this, [this](bool connected) {
-                m_natsConnected = connected;
                 if (!connected) {
                     // NATS 断开时自动暂停回放，避免数据丢失
                     if (m_replayEngine->state() == ReplayEngine::Playing) {
@@ -98,23 +97,11 @@ void Server_DataReplay::log(const QString &level, const QString &message)
     LogService::instance().log(level, message);
 }
 
-// ==================== NATS 状态 ====================
-
-bool Server_DataReplay::isNatsConnected() const
-{
-    return m_natsConnected;
-}
-
 // ==================== 想定管理 ====================
 
 QList<ScenarioSummary> Server_DataReplay::scanScenarios() const
 {
     return m_scenarioMgr->scanScenarios();
-}
-
-QString Server_DataReplay::dataFilesRoot() const
-{
-    return m_scenarioMgr->dataFilesRoot();
 }
 
 bool Server_DataReplay::loadScenario(const QString &filePath)

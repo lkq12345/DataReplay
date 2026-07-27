@@ -45,9 +45,6 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
-    /** @brief 加载想定 */
-    void onLoadScenario();
-
     /** @brief 初始化回放 */
     void onInit();
 
@@ -130,7 +127,7 @@ private:
     /** @brief 扫描想定并更新树形列表 */
     void refreshScenarioTree();
 
-    /** @brief 根据想定填充实体表格（复用 onLoadScenario 和 onInit） */
+    /** @brief 根据想定填充实体表格（由 onInit 调用） */
     void populateEntityTable(const Scenario *scenario);
 
     /** @brief 更新按钮状态（根据当前引擎状态） */

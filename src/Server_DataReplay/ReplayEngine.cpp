@@ -249,11 +249,6 @@ ReplayEngine::State ReplayEngine::state() const
     return m_state;
 }
 
-QDateTime ReplayEngine::currentSimTime() const
-{
-    return m_currentSimTime;
-}
-
 double ReplayEngine::overallProgress() const
 {
     if (!m_dataStartTime.isValid() || !m_dataEndTime.isValid() ||
@@ -268,18 +263,6 @@ double ReplayEngine::overallProgress() const
 
     qint64 elapsedMs = m_dataStartTime.msecsTo(m_currentSimTime);
     return qBound(0.0, (double)elapsedMs / totalMs * 100.0, 100.0);
-}
-
-QString ReplayEngine::stateName(State state)
-{
-    switch (state) {
-        case Idle:     return "Idle";
-        case Ready:    return "Ready";
-        case Playing:  return "Playing";
-        case Paused:   return "Paused";
-        case Stopped:  return "Stopped";
-    }
-    return "Unknown";
 }
 
 void ReplayEngine::applyEntityIdMapping(QString &payload)

@@ -67,18 +67,10 @@ public:
     /** @brief 记录日志（内部委托 LogService） */
     void log(const QString &level, const QString &message);
 
-    // ==================== NATS 状态 ====================
-
-    /** @brief 查询 NATS 是否已连接 */
-    bool isNatsConnected() const;
-
     // ==================== 想定管理（委托 ScenarioMgr） ====================
 
     /** @brief 扫描 dataFiles/ 目录，返回所有想定摘要列表 */
     QList<ScenarioSummary> scanScenarios() const;
-
-    /** @brief 获取 dataFiles 根目录路径 */
-    QString dataFilesRoot() const;
 
     /** @brief 加载指定想定（解析 XML + 关联数据文件） */
     bool loadScenario(const QString &filePath);
@@ -161,7 +153,6 @@ signals:
 private:
     ScenarioMgr  *m_scenarioMgr  = nullptr;
     ReplayEngine *m_replayEngine = nullptr;
-    bool          m_natsConnected = false;   //!< NATS 连接状态缓存
 };
 
 #endif // SERVER_DATAREPLAY_H

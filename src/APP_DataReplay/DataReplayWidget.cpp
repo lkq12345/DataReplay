@@ -299,102 +299,6 @@ void DataReplayWidget::populateEntityTable(const Scenario *scenario)
     loadMappingForCurrentScenario();
 }
 
-void DataReplayWidget::onLoadScenario()
-{
-    // 获取当前选中项（view 返回 proxy index，需映射到源 model）
-    QModelIndexList selected = ui->treeView_Scenario->selectionModel()->selectedIndexes();
-    if (selected.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("提示"),
-                                 QStringLiteral("请先在左侧树形列表中选择一个想定"));
-        return;
-    }
-
-    QModelIndex index = toSourceIndex(selected.first());
-    QString filePath = index.data(Qt::UserRole).toString();
-    QString nodeType = index.data(Qt::UserRole + 1).toString();
-
-    if (nodeType != "scenario") {
-        // 如果选中的是数据文件节点，取其父节点
-        QModelIndex parentIndex = index.parent();
-        if (parentIndex.isValid()) {
-            filePath = parentIndex.data(Qt::UserRole).toString();
-            nodeType = parentIndex.data(Qt::UserRole + 1).toString();
-        }
-        if (nodeType != "scenario") {
-            QMessageBox::information(this, QStringLiteral("提示"),
-                                     QStringLiteral("请选择一个想定节点"));
-            return;
-        }
-    }
-
-    if (filePath.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("错误"),
-                             QStringLiteral("想定文件路径无效"));
-        return;
-    }
-
-    // 加载想定
-    if (!m_server->loadScenario(filePath)) {
-        m_server->log("ERROR",
-            QStringLiteral("想定加载失败: %1").arg(filePath));
-        QMessageBox::critical(this, QStringLiteral("错误"),
-                              QStringLiteral("想定加载失败，请检查文件格式"));
-        return;
-    }
-
-    const Scenario *scenario = m_server->currentScenario();
-    if (!scenario) {
-        return;
-    }
-
-    m_server->log("INFO",
-        QStringLiteral("想定加载成功 - %1 (实体:%2, 数据文件:%3)")
-            .arg(scenario->name)
-            .arg(scenario->entities.size())
-            .arg(scenario->dataFiles.size()));
-
-    // ---- 更新树形列表 ----
-    // 找到对应的树节点，展开并添加数据文件子节点
-    for (int i = 0; i < m_treeModel->invisibleRootItem()->rowCount(); ++i) {
-        QStandardItem *item = m_treeModel->invisibleRootItem()->child(i);
-        if (item->data(Qt::UserRole).toString() == filePath) {
-            // 更新想定行的显示信息
-            QString displayText = QStringLiteral("%1\n  步长:%2ms  实体:%3个")
-                                  .arg(scenario->name)
-                                  .arg(scenario->simStepMs)
-                                  .arg(scenario->entities.size());
-            item->setText(displayText);
-
-            // 添加数据文件子节点
-            item->removeRows(0, item->rowCount());
-            for (const QString &dataFile : scenario->dataFiles) {
-                QFileInfo fi(dataFile);
-                auto *fileItem = new QStandardItem(fi.fileName());
-                fileItem->setData(dataFile, Qt::UserRole);
-                fileItem->setData("datafile", Qt::UserRole + 1);
-                fileItem->setToolTip(QStringLiteral("数据文件: %1").arg(dataFile));
-                item->appendRow(fileItem);
-            }
-
-                // 展开树节点（源索引 → proxy 索引）
-                QModelIndex scenarioIdx = item->index();
-                ui->treeView_Scenario->expand(m_proxyModel->mapFromSource(scenarioIdx));
-                break;
-        }
-    }
-
-    // ---- 更新实体表格 ----
-    populateEntityTable(scenario);
-
-    // ---- 更新状态栏 ----
-    updateStatusBar();
-
-    // ---- 重置引擎状态 ----
-    m_isInitialized = false;
-    m_server->stopReplay();
-    updateButtonStates();
-}
-
 // ==================== 回放控制 ====================
 
 /**
@@ -927,27 +831,34 @@ void DataReplayWidget::onRenameDataFile(const QModelIndex &sourceIndex)
     if (!item) return;
 
     QString oldFilePath = item->data(Qt::UserRole).toString();
-    QFileInfo fi(oldFilePath);
-    QString oldFileName = fi.fileName();
+    QString oldFileName = item->text();  // 树节点显示文本即为文件名，避免 QFileInfo 跨平台分隔符问题
+
+    // 分离文件名和后缀，仅允许修改文件名部分
+    QFileInfo fi(oldFileName);
+    QString suffix = fi.completeSuffix();  // "json" / "tar.gz"（不含点）
+    QString baseName = fi.baseName();      // 不含后缀的文件名
 
     bool ok = false;
-    QString newName = QInputDialog::getText(
+    QString newBaseName = QInputDialog::getText(
         this,
         QStringLiteral("重命名数据文件"),
-        QStringLiteral("请输入新的文件名："),
+        QStringLiteral("请输入新的文件名（后缀不可修改）："),
         QLineEdit::Normal,
-        oldFileName,
+        baseName,
         &ok);
 
-    if (!ok || newName.isEmpty() || newName == oldFileName)
+    if (!ok || newBaseName.isEmpty() || newBaseName == baseName)
         return;
 
     QRegularExpression illegalChars(R"([\/\\\:\*\?\"\<\>\|])");
-    if (illegalChars.match(newName).hasMatch()) {
+    if (illegalChars.match(newBaseName).hasMatch()) {
         QMessageBox::warning(this, QStringLiteral("无效名称"),
                              QStringLiteral("文件名不能包含以下字符: / \\ : * ? \" < > |"));
         return;
     }
+
+    // 重新拼接完整文件名（强制保留原后缀）
+    QString newName = suffix.isEmpty() ? newBaseName : (newBaseName + "." + suffix);
 
     if (!m_server->renameDataFile(oldFilePath, newName)) {
         QMessageBox::critical(this, QStringLiteral("重命名失败"),
@@ -975,8 +886,6 @@ void DataReplayWidget::onDeleteScenario(const QModelIndex &sourceIndex)
         name = name.left(newlinePos).trimmed();
 
     QString dirPath = item->data(Qt::UserRole).toString();
-    QFileInfo fi(dirPath);
-    QString scenarioDir = fi.isFile() ? fi.absolutePath() : dirPath;
 
     // 确认对话框
     QMessageBox::StandardButton reply = QMessageBox::question(
@@ -993,13 +902,13 @@ void DataReplayWidget::onDeleteScenario(const QModelIndex &sourceIndex)
     // 如果删除的是当前加载的想定，先停止引擎
     if (m_server->currentScenario()) {
         QFileInfo loadedFi(m_server->currentScenario()->filePath);
-        if (loadedFi.absolutePath() == scenarioDir) {
+        if (loadedFi.absolutePath() == dirPath) {
             m_server->stopReplay();
         }
     }
 
     // 执行删除
-    if (!m_server->deleteScenario(scenarioDir)) {
+    if (!m_server->deleteScenario(dirPath)) {
         QMessageBox::critical(this, QStringLiteral("删除失败"),
                               QStringLiteral("无法删除文件夹，可能正在被占用。"));
         return;
@@ -1028,8 +937,7 @@ void DataReplayWidget::onDeleteDataFile(const QModelIndex &sourceIndex)
     if (!item) return;
 
     QString filePath = item->data(Qt::UserRole).toString();
-    QFileInfo fi(filePath);
-    QString fileName = fi.fileName();
+    QString fileName = item->text();  // 树节点显示文本即为文件名，避免 QFileInfo 跨平台分隔符问题
 
     QMessageBox::StandardButton reply = QMessageBox::question(
         this,
