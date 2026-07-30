@@ -35,10 +35,11 @@ public:
     QLabel *label_Title;
     QHBoxLayout *horizontalLayout_Main;
     QGroupBox *groupBox_FileMgr;
-    QVBoxLayout *verticalLayout_FileMgr;
+    QVBoxLayout *verticalLayout;
     QHBoxLayout *horizontalLayout;
     QLineEdit *edit_SearchFile;
     QPushButton *Btn_SearchFile;
+    QPushButton *Btn_Import;
     QTreeView *treeView_Scenario;
     QVBoxLayout *verticalLayout_Right;
     QGroupBox *groupBox_Entities;
@@ -106,9 +107,8 @@ public:
         groupBox_FileMgr->setSizePolicy(sizePolicy);
         groupBox_FileMgr->setMinimumSize(QSize(280, 0));
         groupBox_FileMgr->setMaximumSize(QSize(400, 16777215));
-        verticalLayout_FileMgr = new QVBoxLayout(groupBox_FileMgr);
-        verticalLayout_FileMgr->setSpacing(4);
-        verticalLayout_FileMgr->setObjectName(QString::fromUtf8("verticalLayout_FileMgr"));
+        verticalLayout = new QVBoxLayout(groupBox_FileMgr);
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
         horizontalLayout = new QHBoxLayout();
         horizontalLayout->setObjectName(QString::fromUtf8("horizontalLayout"));
         edit_SearchFile = new QLineEdit(groupBox_FileMgr);
@@ -122,7 +122,13 @@ public:
 
         horizontalLayout->addWidget(Btn_SearchFile);
 
-        verticalLayout_FileMgr->addLayout(horizontalLayout);
+        Btn_Import = new QPushButton(groupBox_FileMgr);
+        Btn_Import->setObjectName(QString::fromUtf8("Btn_Import"));
+
+        horizontalLayout->addWidget(Btn_Import);
+
+
+        verticalLayout->addLayout(horizontalLayout);
 
         treeView_Scenario = new QTreeView(groupBox_FileMgr);
         treeView_Scenario->setObjectName(QString::fromUtf8("treeView_Scenario"));
@@ -132,7 +138,7 @@ public:
         treeView_Scenario->setUniformRowHeights(true);
         treeView_Scenario->setHeaderHidden(true);
 
-        verticalLayout_FileMgr->addWidget(treeView_Scenario);
+        verticalLayout->addWidget(treeView_Scenario);
 
 
         horizontalLayout_Main->addWidget(groupBox_FileMgr);
@@ -366,6 +372,7 @@ public:
         groupBox_FileMgr->setTitle(QApplication::translate("DataReplayWidget", "\346\226\207\344\273\266\347\256\241\347\220\206", nullptr));
         edit_SearchFile->setPlaceholderText(QApplication::translate("DataReplayWidget", "\346\220\234\347\264\242\346\226\207\344\273\266...", nullptr));
         Btn_SearchFile->setText(QApplication::translate("DataReplayWidget", "\346\220\234\347\264\242", nullptr));
+        Btn_Import->setText(QApplication::translate("DataReplayWidget", "\345\257\274\345\205\245", nullptr));
         groupBox_Entities->setTitle(QApplication::translate("DataReplayWidget", "\345\256\236\344\275\223\351\205\215\347\275\256", nullptr));
         Btn_SearchEntity->setText(QApplication::translate("DataReplayWidget", "\346\220\234\347\264\242", nullptr));
         btn_SaveMapping->setText(QApplication::translate("DataReplayWidget", "\344\277\235\345\255\230\346\230\240\345\260\204", nullptr));

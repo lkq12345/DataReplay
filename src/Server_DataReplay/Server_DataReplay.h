@@ -96,6 +96,19 @@ public:
     /** @brief 删除单个数据文件 */
     bool deleteDataFile(const QString &filePath);
 
+    /** @brief 向已有想定追加数据文件（复制到回放数据/ 目录），返回成功复制的数量 */
+    int addDataFiles(const QString &scenarioDir, const QStringList &filePaths);
+
+    /** @brief 重新扫描想定的数据文件目录，返回当前数据文件路径列表 */
+    QStringList refreshDataFiles(const QString &scenarioDir);
+
+    /** @brief 预览导入：解析 XML + 扫描源目录，不执行实际复制 */
+    ImportPreview previewImport(const QString &xmlSourcePath);
+
+    /** @brief 执行导入：创建目录 + 复制 XML + 创建空的 回放数据/ */
+    bool importScenario(const QString &xmlSourcePath,
+                        const QString &targetDirName);
+
     // ==================== 回放控制（委托 ReplayEngine） ====================
 
     /** @brief 初始化回放引擎（创建 Reader、扫描时间范围、连接 NATS） */

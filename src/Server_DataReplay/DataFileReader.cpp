@@ -7,8 +7,9 @@
  * - 通过 readWindow() 按仿真时间窗口增量读取，避免重复扫描
  * - 按文件原始行序输出数据，保证发送顺序与源文件一致
  *
- * 单行数据格式（外层时间戳 + JSON）：
- *   2026-07-12 09:00:00.001 {"data":{"entity":"1001","simTime":{...},"cmd":"status",...}}
+ * 单行数据格式（兼容有无外层时间戳）：
+ *   2026-07-12 09:00:00.017 {"data":{...}}  → 跳过时间戳取 JSON
+ *   {"data":{"entity":"1001","simTime":{...},"cmd":"status",...}}
  */
 
 #include "DataFileReader.h"
@@ -126,17 +127,13 @@ DataRecord DataFileReader::readFirstRecord()
         }
 
         // 解析行
-        QDateTime outerTimestamp;
         QByteArray jsonPart;
-        if (!parseLine(rawLine, outerTimestamp, jsonPart)) {
+        if (!parseLine(rawLine, jsonPart)) {
             continue;
         }
 
         // 提取仿真时间
         QDateTime simTime = extractSimTime(jsonPart);
-        if (!simTime.isValid()) {
-            simTime = outerTimestamp;
-        }
 
         // 填充记录
         record.simTimestamp = simTime;
@@ -186,19 +183,14 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
             continue;
         }
 
-        // 解析行：分离外层时间戳和 JSON 部分
-        QDateTime outerTimestamp;
+        // 解析行
         QByteArray jsonPart;
-        if (!parseLine(rawLine, outerTimestamp, jsonPart)) {
+        if (!parseLine(rawLine, jsonPart)) {
             continue;
         }
 
-        // 从 JSON 内部提取仿真时间（优先用 simTime.formatted）
+        // 从 JSON 内部提取仿真时间
         QDateTime simTime = extractSimTime(jsonPart);
-        if (!simTime.isValid()) {
-            // JSON 内无 simTime 时，回退到外层时间戳
-            simTime = outerTimestamp;
-        }
 
         // ---- 窗口判断（半开区间 [windowStart, windowEnd)） ----
 
@@ -244,32 +236,24 @@ QList<DataRecord> DataFileReader::readWindow(const QDateTime &windowStart, int s
     return results;
 }
 
-bool DataFileReader::parseLine(const QByteArray &rawLine, QDateTime &outerTimestamp, QByteArray &jsonPart)
+bool DataFileReader::parseLine(const QByteArray &rawLine, QByteArray &jsonPart)
 {
-    // 行格式: "YYYY-MM-DD HH:MM:SS.zzz <JSON_DATA>"
-    // 外层时间戳固定 23 字符，直接用 left(23) 截取，避免被 JSON 内部日期混淆
+    // 行格式: "YYYY-MM-DD HH:MM:SS.zzz {JSON}"
+    // 时间戳固定 23 字符 + 1 空格，跳过它，只取后面的 JSON 部分
     QString lineStr = QString::fromUtf8(rawLine).trimmed();
 
-    if (lineStr.length() < 23) {
+    if (lineStr.isEmpty()) {
         return false;
     }
 
     static const int TIMESTAMP_LEN = 23; // "YYYY-MM-DD HH:MM:SS.zzz"
 
-    // 取前 23 字符作为外层时间戳
-    QString tsStr = lineStr.left(TIMESTAMP_LEN);
-
-    outerTimestamp = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss.zzz");
-    if (!outerTimestamp.isValid()) {
-        // 兼容无毫秒的 19 字符格式 "YYYY-MM-DD HH:MM:SS"
-        tsStr = lineStr.left(19);
-        outerTimestamp = QDateTime::fromString(tsStr, "yyyy-MM-dd HH:mm:ss");
-        if (!outerTimestamp.isValid()) {
-            return false;
-        }
-        jsonPart = lineStr.mid(19).trimmed().toUtf8();
+    if (lineStr.length() > TIMESTAMP_LEN && lineStr.at(TIMESTAMP_LEN) == ' ') {
+        // 有时间戳前缀 → 跳过 "YYYY-MM-DD HH:MM:SS.zzz "，取后面 JSON
+        jsonPart = lineStr.mid(TIMESTAMP_LEN + 1).trimmed().toUtf8();
     } else {
-        jsonPart = lineStr.mid(TIMESTAMP_LEN).trimmed().toUtf8();
+        // 无时间戳前缀 → 整行即 JSON
+        jsonPart = lineStr.toUtf8();
     }
 
     return !jsonPart.isEmpty();
@@ -348,13 +332,9 @@ void DataFileReader::scanFileInfo()
         return;
     }
 
-    QDateTime outerTs;
     QByteArray jsonPart;
-    if (parseLine(firstLine, outerTs, jsonPart)) {
+    if (parseLine(firstLine, jsonPart)) {
         m_fileInfo.minTime = extractSimTime(jsonPart);
-        if (!m_fileInfo.minTime.isValid()) {
-            m_fileInfo.minTime = outerTs;   // 回退到外层时间戳
-        }
     }
 
     // ---- 从文件尾部读取最后一行获取结束仿真时间 ----
@@ -368,11 +348,8 @@ void DataFileReader::scanFileInfo()
         if (!lines.isEmpty()) {
             QString lastLine = lines.last().trimmed();
             QByteArray lastLineBytes = lastLine.toUtf8();
-            if (parseLine(lastLineBytes, outerTs, jsonPart)) {
+            if (parseLine(lastLineBytes, jsonPart)) {
                 m_fileInfo.maxTime = extractSimTime(jsonPart);
-                if (!m_fileInfo.maxTime.isValid()) {
-                    m_fileInfo.maxTime = outerTs;
-                }
             }
         }
     } else {
@@ -383,11 +360,8 @@ void DataFileReader::scanFileInfo()
         if (!lines.isEmpty()) {
             QString lastLine = lines.last().trimmed();
             QByteArray lastLineBytes = lastLine.toUtf8();
-            if (parseLine(lastLineBytes, outerTs, jsonPart)) {
+            if (parseLine(lastLineBytes, jsonPart)) {
                 m_fileInfo.maxTime = extractSimTime(jsonPart);
-                if (!m_fileInfo.maxTime.isValid()) {
-                    m_fileInfo.maxTime = outerTs;
-                }
             }
         }
     }

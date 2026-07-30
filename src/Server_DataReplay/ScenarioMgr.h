@@ -10,6 +10,19 @@
 #include "Server_DataReplay_global.h"
 
 /**
+ * @brief 导入预览信息
+ *
+ * 由 ScenarioMgr::previewImport() 返回给 APP 层，
+ * 用于填充 ImportDialog 的展示内容和控制交互。
+ */
+struct ImportPreview {
+    QString sceName;           //!< XML 内部 SceName（仅用于显示）
+    QString targetDirName;     //!< 目标目录名 = XML 文件名（不含 .xml 后缀）
+    QString xmlSourcePath;     //!< 源 XML 绝对路径
+    bool targetExists = false; //!< 目标 dataFiles/{targetDirName}/ 是否已存在
+};
+
+/**
  * @brief 仿真实体信息
  *
  * 描述想定中的一个仿真对象（舰船、飞机、汽车等），
@@ -124,6 +137,37 @@ public:
      * @return true 删除成功，自动从当前想定 dataFiles 列表中移除
      */
     bool deleteDataFile(const QString &filePath);
+
+    /**
+     * @brief 向已有想定追加数据文件（复制到回放数据/ 目录）
+     * @param scenarioDir 想定目录的绝对路径
+     * @param filePaths   待复制的源文件绝对路径列表
+     * @return 成功复制的文件数量，-1 表示参数无效
+     * @note 若当前想定的 dataFiles 列表包含此目录，同步追加新路径
+     */
+    int addDataFiles(const QString &scenarioDir, const QStringList &filePaths);
+
+    /**
+     * @brief 重新扫描想定的数据文件目录
+     * @param scenarioDir 想定目录的绝对路径
+     * @return 当前 回放数据/ 目录下所有数据文件的绝对路径列表
+     * @note 若当前想定的 dataFiles 列表属于此目录，同步更新
+     */
+    QStringList refreshDataFiles(const QString &scenarioDir);
+
+    /**
+     * @brief 预览导入：解析 XML 获取想定名称，检查目标目录是否存在（不执行实际复制）
+     * @param xmlSourcePath 用户选择的 XML 文件绝对路径
+     */
+    ImportPreview previewImport(const QString &xmlSourcePath);
+
+    /**
+     * @brief 执行导入：在 dataFiles/ 下创建目录，复制 XML，创建空的 回放数据/ 子目录
+     * @param xmlSourcePath 源 XML 文件绝对路径
+     * @param targetDirName 目标目录名（= XML 文件名去掉 .xml）
+     */
+    bool importScenario(const QString &xmlSourcePath,
+                        const QString &targetDirName);
 
 private:
     /**

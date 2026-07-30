@@ -111,6 +111,15 @@ private slots:
     /** @brief 删除数据文件 */
     void onDeleteDataFile(const QModelIndex &sourceIndex);
 
+    /** @brief 向想定追加数据文件（复制到回放数据/ 目录） */
+    void onAddDataFiles(const QModelIndex &sourceIndex);
+
+    /** @brief 重新扫描想定的数据文件目录 */
+    void onRefreshDataFiles(const QModelIndex &sourceIndex);
+
+    /** @brief 导入想定（完整 UI 流程入口） */
+    void onImportScenario();
+
 private:
     /** @brief 初始化树形列表模型 */
     void initTreeModel();

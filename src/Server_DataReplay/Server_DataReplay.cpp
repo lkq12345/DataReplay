@@ -145,6 +145,27 @@ bool Server_DataReplay::deleteDataFile(const QString &filePath)
     return m_scenarioMgr->deleteDataFile(filePath);
 }
 
+int Server_DataReplay::addDataFiles(const QString &scenarioDir, const QStringList &filePaths)
+{
+    return m_scenarioMgr->addDataFiles(scenarioDir, filePaths);
+}
+
+QStringList Server_DataReplay::refreshDataFiles(const QString &scenarioDir)
+{
+    return m_scenarioMgr->refreshDataFiles(scenarioDir);
+}
+
+ImportPreview Server_DataReplay::previewImport(const QString &xmlSourcePath)
+{
+    return m_scenarioMgr->previewImport(xmlSourcePath);
+}
+
+bool Server_DataReplay::importScenario(const QString &xmlSourcePath,
+                                        const QString &targetDirName)
+{
+    return m_scenarioMgr->importScenario(xmlSourcePath, targetDirName);
+}
+
 // ==================== 回放控制 ====================
 
 bool Server_DataReplay::initReplay(const Scenario *scenario, const QString &selectedFile)

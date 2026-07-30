@@ -16,6 +16,7 @@
 #include "ui_DataReplayWidget.h"
 #include "EntityFilterProxyModel.h"
 #include "ScenarioFilterProxyModel.h"
+#include "ImportDialog.h"
 
 #include <QTreeView>
 #include <QTableView>
@@ -37,6 +38,7 @@
 #include <QMenu>
 #include <QInputDialog>
 #include <QRegularExpression>
+#include <QFileDialog>
 
 // ==================== 列索引定义 ====================
 enum EntityColumn {
@@ -105,6 +107,10 @@ DataReplayWidget::~DataReplayWidget()
 void DataReplayWidget::initConnects()
 {
     // -- UI 控件信号 --
+
+    // 导入想定按钮
+    connect(ui->Btn_Import, &QPushButton::clicked,
+            this, &DataReplayWidget::onImportScenario);
 
     // 右键菜单
     connect(ui->treeView_Scenario, &QTreeView::customContextMenuRequested,
@@ -757,6 +763,21 @@ void DataReplayWidget::onTreeContextMenu(const QPoint &pos)
 
     QMenu menu;
 
+    // 想定文件夹节点：额外支持「添加数据文件」和「重新扫描」
+    if (nodeType == "scenariodir") {
+        QAction *addFilesAction = menu.addAction(QStringLiteral("添加数据文件..."));
+        connect(addFilesAction, &QAction::triggered, this, [this, sourceIndex]() {
+            onAddDataFiles(sourceIndex);
+        });
+
+        QAction *refreshAction = menu.addAction(QStringLiteral("重新扫描"));
+        connect(refreshAction, &QAction::triggered, this, [this, sourceIndex]() {
+            onRefreshDataFiles(sourceIndex);
+        });
+
+        menu.addSeparator();
+    }
+
     // 所有节点都支持重命名和删除
     QAction *renameAction = menu.addAction(QStringLiteral("重命名"));
     QAction *deleteAction = menu.addAction(QStringLiteral("删除"));
@@ -965,5 +986,104 @@ void DataReplayWidget::onDeleteDataFile(const QModelIndex &sourceIndex)
         QStringLiteral("文件已删除: %1").arg(filePath));
 
     // 刷新树以反映更改
+    refreshScenarioTree();
+}
+
+// ==================== 追加数据文件 ====================
+
+void DataReplayWidget::onAddDataFiles(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString scenarioDir = item->data(Qt::UserRole).toString();
+    QString scenarioName = item->text();
+
+    // 弹出文件选择对话框（支持多选 JSON 和 TXT）
+    QStringList selectedFiles = QFileDialog::getOpenFileNames(
+        this,
+        QStringLiteral("选择数据文件 - %1").arg(scenarioName),
+        QString(),
+        QStringLiteral("数据文件 (*.json *.txt);;所有文件 (*.*)"));
+
+    if (selectedFiles.isEmpty())
+        return;
+
+    // 调用后端复制文件
+    int count = m_server->addDataFiles(scenarioDir, selectedFiles);
+    if (count < 0) {
+        QMessageBox::critical(this, QStringLiteral("错误"),
+                             QStringLiteral("无法创建回放数据目录"));
+        return;
+    }
+
+    m_server->log("INFO",
+        QStringLiteral("已添加 %1/%2 个数据文件到「%3」")
+            .arg(count).arg(selectedFiles.size()).arg(scenarioName));
+
+    if (count > 0) {
+        refreshScenarioTree();
+    }
+}
+
+void DataReplayWidget::onRefreshDataFiles(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item) return;
+
+    QString scenarioDir = item->data(Qt::UserRole).toString();
+    QString scenarioName = item->text();
+
+    QStringList files = m_server->refreshDataFiles(scenarioDir);
+
+    m_server->log("INFO",
+        QStringLiteral("「%1」重新扫描完成，共 %2 个数据文件")
+            .arg(scenarioName).arg(files.size()));
+
+    refreshScenarioTree();
+}
+
+// ==================== 导入想定 ====================
+
+void DataReplayWidget::onImportScenario()
+{
+    // ① 选择 XML 文件
+    QString xmlPath = QFileDialog::getOpenFileName(
+        this,
+        QStringLiteral("选择想定 XML 文件"),
+        QString(),
+        QStringLiteral("XML 想定文件 (*.xml);;所有文件 (*.*)"));
+
+    if (xmlPath.isEmpty())
+        return;
+
+    // ② 预览导入（解析 XML，检查目标是否存在）
+    ImportPreview preview = m_server->previewImport(xmlPath);
+    if (preview.sceName.isEmpty()) {
+        QMessageBox::critical(this, QStringLiteral("导入失败"),
+                             QStringLiteral("无法解析想定 XML 文件，请检查文件格式。"));
+        return;
+    }
+
+    // ③ 弹出确认框
+    ImportDialog dlg(preview, this);
+    if (dlg.exec() != QDialog::Accepted) {
+        m_server->log("INFO",
+            QStringLiteral("用户取消了导入: %1").arg(preview.targetDirName));
+        return;
+    }
+
+    // ④ 执行导入（仅复制 XML，创建空的 回放数据/ 目录）
+    bool success = m_server->importScenario(xmlPath, preview.targetDirName);
+    if (!success) {
+        QMessageBox::critical(this, QStringLiteral("导入失败"),
+                             QStringLiteral("导入过程中发生错误，请检查磁盘空间和权限。"));
+        return;
+    }
+
+    m_server->log("INFO",
+        QStringLiteral("想定导入成功: %1").arg(preview.targetDirName));
+
+    // ⑤ 刷新界面
     refreshScenarioTree();
 }

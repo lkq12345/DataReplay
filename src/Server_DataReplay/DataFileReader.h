@@ -91,10 +91,10 @@ signals:
     void progressChanged(double percent);
 
 private:
-    /** @brief 解析一行数据，分离外层时间戳和 JSON 部分 */
-    bool parseLine(const QByteArray &rawLine, QDateTime &outerTimestamp, QByteArray &jsonPart);
+    /** @brief 解析一行数据，提取 JSON 部分 */
+    bool parseLine(const QByteArray &rawLine, QByteArray &jsonPart);
 
-    /** @brief 从 JSON 中提取 simTime（优先使用 epochMillis） */
+    /** @brief 从 JSON 中提取 simTime（优先使用 formatted 字段） */
     QDateTime extractSimTime(const QByteArray &jsonData);
 
     /** @brief 预扫描文件信息 */

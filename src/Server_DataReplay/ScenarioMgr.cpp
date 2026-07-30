@@ -444,3 +444,153 @@ bool ScenarioMgr::deleteDataFile(const QString &filePath)
     qDebug() << "数据文件已删除:" << filePath;
     return true;
 }
+
+// ==================== 追加数据文件 + 重新扫描 ====================
+
+int ScenarioMgr::addDataFiles(const QString &scenarioDir, const QStringList &filePaths)
+{
+    if (scenarioDir.isEmpty() || filePaths.isEmpty()) {
+        qWarning() << "addDataFiles: 参数无效";
+        return -1;
+    }
+
+    // 确保回放数据/ 目录存在
+    QString replayDirPath = scenarioDir + "/回放数据";
+    QDir replayDir(replayDirPath);
+    if (!replayDir.exists()) {
+        if (!replayDir.mkpath(".")) {
+            qWarning() << "无法创建回放数据目录:" << replayDirPath;
+            return -1;
+        }
+    }
+
+    int successCount = 0;
+    for (const QString &srcPath : filePaths) {
+        QFileInfo fi(srcPath);
+        if (!fi.exists() || !fi.isFile()) {
+            qWarning() << "源文件不存在:" << srcPath;
+            continue;
+        }
+
+        QString destPath = replayDir.absoluteFilePath(fi.fileName());
+
+        // 同名文件先删除再复制（覆盖）
+        if (QFile::exists(destPath)) {
+            QFile::remove(destPath);
+        }
+
+        if (QFile::copy(srcPath, destPath)) {
+            successCount++;
+            qDebug() << "数据文件已复制:" << fi.fileName() << "→" << destPath;
+
+            // 若当前想定的 dataFiles 列表属于此目录，同步追加
+            if (m_currentScenario) {
+                QFileInfo loadedFi(m_currentScenario->filePath);
+                if (loadedFi.absolutePath() == scenarioDir) {
+                    if (!m_currentScenario->dataFiles.contains(destPath)) {
+                        m_currentScenario->dataFiles.append(destPath);
+                    }
+                }
+            }
+        } else {
+            qWarning() << "文件复制失败:" << srcPath << "→" << destPath;
+        }
+    }
+
+    qDebug() << "addDataFiles 完成，成功:" << successCount << "/" << filePaths.size();
+    return successCount;
+}
+
+QStringList ScenarioMgr::refreshDataFiles(const QString &scenarioDir)
+{
+    QStringList files = findDataFiles(scenarioDir);
+
+    // 若当前想定的 dataFiles 列表属于此目录，同步更新
+    if (m_currentScenario) {
+        QFileInfo loadedFi(m_currentScenario->filePath);
+        if (loadedFi.absolutePath() == scenarioDir) {
+            m_currentScenario->dataFiles = files;
+        }
+    }
+
+    qDebug() << "refreshDataFiles:" << scenarioDir << "→" << files.size() << "个文件";
+    return files;
+}
+
+// ==================== 导入想定 ====================
+
+ImportPreview ScenarioMgr::previewImport(const QString &xmlSourcePath)
+{
+    ImportPreview preview;
+    preview.xmlSourcePath = xmlSourcePath;
+
+    QFileInfo xmlFi(xmlSourcePath);
+
+    // ① 目标目录名 = XML 文件名（不含 .xml 后缀）
+    preview.targetDirName = xmlFi.completeBaseName();
+
+    // ② 浅解析 XML，获取内部 SceName（仅用于显示）
+    Scenario tempScenario;
+    if (!parseScenarioXml(xmlSourcePath, tempScenario)) {
+        qWarning() << "previewImport: XML 解析失败:" << xmlSourcePath;
+        return preview;  // sceName 为空 → 调用方据此判断失败
+    }
+
+    preview.sceName = tempScenario.name;
+
+    // ③ 检查目标目录是否已存在
+    QString targetDir = dataFilesRoot() + "/" + preview.targetDirName;
+    preview.targetExists = QDir(targetDir).exists();
+
+    qDebug() << "previewImport:" << preview.targetDirName
+             << "sceName:" << preview.sceName
+             << "targetExists:" << preview.targetExists;
+
+    return preview;
+}
+
+bool ScenarioMgr::importScenario(const QString &xmlSourcePath,
+                                  const QString &targetDirName)
+{
+    if (targetDirName.isEmpty()) {
+        qWarning() << "importScenario: targetDirName 为空";
+        return false;
+    }
+
+    QString targetDir = dataFilesRoot() + "/" + targetDirName;
+    QDir dir;
+
+    // ① 若目标已存在 → 先递归删除
+    if (QDir(targetDir).exists()) {
+        QDir d(targetDir);
+        if (!d.removeRecursively()) {
+            qWarning() << "无法删除已存在的目标目录:" << targetDir;
+            return false;
+        }
+    }
+
+    // ② 创建目标目录
+    if (!dir.mkpath(targetDir)) {
+        qWarning() << "无法创建目标目录:" << targetDir;
+        return false;
+    }
+
+    // ③ 复制 XML 文件
+    QString xmlDestPath = targetDir + "/" + QFileInfo(xmlSourcePath).fileName();
+    if (!QFile::copy(xmlSourcePath, xmlDestPath)) {
+        qWarning() << "XML 复制失败:" << xmlSourcePath << "→" << xmlDestPath;
+        // 不回滚，继续创建子目录
+    }
+
+    // ④ 创建空的 回放数据/ 子目录（后续通过添加数据文件功能填充）
+    QString replayDirPath = targetDir + "/回放数据";
+    if (!dir.mkpath(replayDirPath)) {
+        qWarning() << "无法创建回放数据目录:" << replayDirPath;
+        return false;
+    }
+
+    qDebug() << "importScenario 完成:" << targetDirName
+             << "目标:" << targetDir;
+
+    return true;
+}
