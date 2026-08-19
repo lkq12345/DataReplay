@@ -39,7 +39,8 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 | 状态机 | Idle → Ready → Playing ↔ Paused ↔ Stopped |
 | 定时器步进 | 物理定时器间隔 = 仿真步长 / 倍速 |
 | 倍速控制 | 1~100 倍，回放中实时生效 |
-| 跨文件合并 | 多数据文件按 simTime 全局排序后发送 |
+| 工作线程 | 读文件 + 实体替换 + NATS 发布下沉到 ReplayWorker 专用线程，避免大窗口卡 UI |
+| 单文件回放 | 当前仅支持回放单个数据文件（游标式读取），跨文件合并为预留能力 |
 | 进度计算 | 基于数据文件实际时间范围，非想定理论结束时间 |
 
 ### 实体ID映射
@@ -108,9 +109,10 @@ DataReplay 是一个基于 **Qt 5.12** 和 **NATS 消息中间件** 的数据回
 │                                                                │
 │  Server_DataReplay (Facade) 封装:                               │
 │    ├── ScenarioMgr           ← 想定 XML 解析、目录扫描           │
-│    ├── ReplayEngine          ← 回放状态机、步进、倍速             │
-│    │   ├── DataFileReader    ← 大文件游标式读取（多实例）         │
-│    │   └── Communication_NATS ← NATS 消息发送                   │
+│    ├── ReplayEngine          ← 回放状态机、步进、倍速（主线程）    │
+│    │   └── ReplayWorker      ← 工作线程：读文件+映射替换+NATS发布 │
+│    │       ├── DataFileReader ← 大文件游标式读取（单实例）        │
+│    │       └── Communication_NATS ← NATS 消息发送                │
 │    └── LogService            ← 日志收集(完全内聚，APP 不感知)     │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -125,9 +127,10 @@ APP_DataReplay (exe)
 Server_DataReplay (dll)
   ├── Server_DataReplay (Facade)        ← 统一入口，封装所有内部调用
   │   ├── ScenarioMgr                   ← 想定管理（含浅解析扫描）
-  │   ├── ReplayEngine                  ← 回放引擎
-  │   │   ├── DataFileReader            ← 大文件游标式读取
-  │   │   └── Communication_NATS        ← NATS 消息发送
+  │   ├── ReplayEngine                  ← 回放引擎（主线程：状态机/定时器/进度）
+  │   │   └── ReplayWorker              ← 工作线程：读文件+映射替换+NATS发布
+  │   │       ├── DataFileReader        ← 大文件游标式读取
+  │   │       └── Communication_NATS    ← NATS 消息发送
   │   ├── LogService                    ← 日志服务（内聚在 Facade 内）
   │   └── Communication_NATS            ← NATS 断开自动暂停回放
   └── 第三方依赖
@@ -154,19 +157,24 @@ Server_DataReplay (dll)
 │  │ScenarioMgr│ │Replay   │ │
 │  │ 想定管理  │ │Engine   │ │
 │  │ 映射配置  │ │ 回放引擎 │ │
-│  └──────────┘ └──┬──┬───┘ │
-│      LogService  │  │     │
-│       (内聚)     │  │     │
-└──────────────────│──│─────┘
-                   │  │
-          ┌────────┘  └──────────┐
-          ▼                      ▼
-  Communication_NATS    DataFileReader × N
-  (NATS 消息发送)        (游标式文件读取)
-          │
-          ▼
-    NATSClient
-  (C 库封装)
+│  └──────────┘ └────┬────┘ │
+│      LogService    │      │
+│       (内聚)       │      │
+└────────────────────│──────┘
+                     │ (主线程) 信号/槽
+                     ▼
+              ┌─────────────┐
+              │ ReplayWorker│  (专用工作线程)
+              │ 读文件+替换  │
+              │ +NATS发布   │
+              └──┬───────┬──┘
+                 ▼       ▼
+         DataFileReader  Communication_NATS
+         (游标式文件读取) (NATS 消息发送)
+                              │
+                              ▼
+                        NATSClient
+                        (C 库封装)
 ```
 
 ### 启动流程（通过 Facade）
@@ -191,25 +199,24 @@ Server_DataReplay (dll)
   APP → m_server->saveEntityIdMapping() → 增量合并写入 mapping.json
 
 [选中数据文件 → 初始化]
-  APP → m_server->initReplay(scenario, files)
+  APP → m_server->initReplay(scenario, selectedFile)
          └── ReplayEngine::initialize()
-              ├── 创建 DataFileReader
+              ├── 创建 ReplayWorker + 专用工作线程
+              ├── 异步请求 worker 打开文件（局部事件循环等待，UI 不冻结）
               ├── 扫描时间范围 → m_dataEndTime
               ├── 初始化 NATS 连接
-              ├── setEntityIdMapping()
+              ├── setEntityIdMapping()（异步投递到 worker）
               └── 状态 → Ready
 
 [开始回放]
   APP → m_server->startReplay()
          └── ReplayEngine::start()
               └── QTimer 启动（间隔 = simStepMs / speed）
-                   └── 每次 tick():
-                        ├── DataFileReader::readWindow()
-                        ├── 跨文件合并 → 按 simTime 排序
-                        ├── 实体ID映射替换（正则 + QMap）
-                        ├── Communication_NATS::sendMsgData()
-                        ├── 推进仿真时间
-                        └── 检查结束条件
+                   └── 每次 tick(): 前置判断 → 异步派发窗口任务到 worker，立即返回
+                        （worker 线程: DataFileReader::readWindow()
+                          → 实体ID映射替换（正则 + QMap）
+                          → Communication_NATS::sendMsgData()）
+                        ← worker 回传结果 → 主线程推进仿真时间 / 检查结束条件
 
 [NATS 断开]
   Facade 自动检测 natsConnected(false)
@@ -236,10 +243,12 @@ Server_DataReplay (dll)
 ### 结束条件（三层保障）
 
 ```
-tick() →
+tick()（主线程，异步）→
   ① 前置判断: windowStart > m_dataEndTime? → 停止
-  ② 读取窗口数据 → 发送 →
-  ③ allEnd? (Reader 全部到文件尾) → 停在 windowStart，停止
+  ② 派发窗口任务到 ReplayWorker（worker 线程读取 + 发送）
+
+onWindowProcessed()（主线程，收到 worker 回传结果后）→
+  ③ atEnd? (Reader 已到文件尾) → 停在 windowStart，停止
   ④ windowStart >= m_dataEndTime? → 停在 m_dataEndTime，停止
   ⑤ 正常推进 simTime → 继续
 ```
@@ -311,6 +320,7 @@ D:/QTProject/DataReplay/
 │       ├── ScenarioMgr.h/cpp         # 想定管理
 │       ├── DataFileReader.h/cpp      # 文件读取
 │       ├── ReplayEngine.h/cpp        # 回放引擎
+│       ├── ReplayWorker.h/cpp        # 回放工作线程（读文件+替换+NATS发布）
 │       ├── LogService.h/cpp          # 日志服务
 │       └── Communication/            # NATS 通信
 │           ├── NATSClient.h/cpp

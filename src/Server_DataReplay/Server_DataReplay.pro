@@ -28,6 +28,7 @@ SOURCES += \
     ScenarioMgr.cpp \
     DataFileReader.cpp \
     ReplayEngine.cpp \
+    ReplayWorker.cpp \
     LogService.cpp
 
 HEADERS += \
@@ -39,6 +40,7 @@ HEADERS += \
     ScenarioMgr.h \
     DataFileReader.h \
     ReplayEngine.h \
+    ReplayWorker.h \
     LogService.h
 
 

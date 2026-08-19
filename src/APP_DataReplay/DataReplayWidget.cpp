@@ -74,7 +74,7 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     initConnects();
 
     // ==================== 倍速输入校验 ====================
-    m_speedValidator = new QIntValidator(1, 10, this);
+    m_speedValidator = new QIntValidator(1, 100, this);
     ui->edit_Speed->setValidator(m_speedValidator);
     ui->edit_Speed->setText("1");
 

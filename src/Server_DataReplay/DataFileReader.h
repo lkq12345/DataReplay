@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QList>
+#include <QMetaType>
 #include "Server_DataReplay_global.h"
 
 /**
@@ -24,6 +25,8 @@ struct DataFileInfo {
     QDateTime minTime;          //!< 数据文件中的最早仿真时间（读取首行获得）
     QDateTime maxTime;          //!< 数据文件中的最晚仿真时间（读取尾部获得）
 };
+
+Q_DECLARE_METATYPE(DataFileInfo)
 
 /**
  * @brief 单条数据记录
