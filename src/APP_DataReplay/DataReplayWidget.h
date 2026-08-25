@@ -24,6 +24,7 @@ QT_END_NAMESPACE
 // 前置声明
 class ScenarioFilterProxyModel;
 class EntityFilterProxyModel;
+class DescriptionDialog;
 struct Scenario;
 
 /**
@@ -117,6 +118,9 @@ private slots:
     /** @brief 重新扫描想定的数据文件目录 */
     void onRefreshDataFiles(const QModelIndex &sourceIndex);
 
+    /** @brief 编辑描述（右键菜单入口，按节点类型分发到想定/数据文件描述编辑） */
+    void onEditDescription();
+
     /** @brief 导入想定（完整 UI 流程入口） */
     void onImportScenario();
 
@@ -150,6 +154,12 @@ private:
 
     /** @brief 将 View 的 proxy index 映射为源 model index */
     QModelIndex toSourceIndex(const QModelIndex &viewIndex) const;
+
+    /** @brief 编辑想定描述（弹出 DescriptionDialog 并保存到 description.json） */
+    void editScenarioDescription(const QModelIndex &sourceIndex);
+
+    /** @brief 编辑数据文件描述（弹出 DescriptionDialog 并保存到 description.json） */
+    void editDataFileDescription(const QModelIndex &sourceIndex);
 
     Ui::DataReplayWidget *ui;
 

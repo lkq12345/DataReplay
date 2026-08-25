@@ -125,6 +125,23 @@ bool Server_DataReplay::saveEntityIdMapping(const QString &scenarioDir,
     return m_scenarioMgr->saveEntityIdMapping(scenarioDir, newMappings);
 }
 
+QString Server_DataReplay::loadScenarioDescription(const QString &scenarioDir)
+{
+    return m_scenarioMgr->loadScenarioDescription(scenarioDir);
+}
+
+QMap<QString, QString> Server_DataReplay::loadDataFileDescriptions(const QString &scenarioDir)
+{
+    return m_scenarioMgr->loadDataFileDescriptions(scenarioDir);
+}
+
+bool Server_DataReplay::saveDescription(const QString &scenarioDir,
+                                         const QString &scenarioDesc,
+                                         const QMap<QString, QString> &dataFileDescs)
+{
+    return m_scenarioMgr->saveDescription(scenarioDir, scenarioDesc, dataFileDescs);
+}
+
 bool Server_DataReplay::renameScenario(const QString &oldDirPath, const QString &newName)
 {
     return m_scenarioMgr->renameScenario(oldDirPath, newName);

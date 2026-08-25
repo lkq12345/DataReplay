@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QMap>
+#include <QJsonObject>
 #include "Server_DataReplay_global.h"
 
 /**
@@ -45,6 +46,7 @@ struct Scenario {
     QString name;                       //!< 想定名称，例如 "海上编队巡逻想定"（XML: ScenarioInfo/Attribute[@Name='SceName']）
     QString filePath;                   //!< 想定 XML 文件的完整路径（代码设置，非 XML 解析结果）
     QString createTime;                 //!< 想定创建时间，字符串格式（XML: ScenarioInfo/Attribute[@Name='CreateTime']）
+    QString description;                //!< 想定描述（来自 description.json，与 XML 的 Description 属性相互独立）
     QDateTime startTime;                //!< 仿真开始时间（XML: ScenarioInfo/Attribute[@Name='StartTime']）
     QDateTime endTime;                  //!< 仿真结束时间，作为回放自动停止的上限（XML: ScenarioInfo/Attribute[@Name='EndTime']）
     int simStepMs = 100;                //!< 仿真步长（毫秒），控制每次 tick 推进的时间窗口大小（XML: ScenarioInfo/Attribute[@Name='SimStep']）
@@ -62,6 +64,7 @@ struct ScenarioSummary {
     QString name;           //!< 想定名称
     QString scenarioDir;    //!< 想定目录的绝对路径（dataFiles/ 下的子目录）
     QString filePath;       //!< 想定 XML 文件的完整路径
+    QString description;    //!< 想定描述（来自 description.json，用于树节点 tooltip）
     int entityCount = 0;    //!< 实体数量（来自 XML 中 <Entities> 区域的 Entity 元素计数）
 };
 
@@ -105,6 +108,31 @@ public:
      * @return true 保存成功
      */
     bool saveEntityIdMapping(const QString &scenarioDir, const QMap<QString, QString> &newMappings);
+
+    /**
+     * @brief 读取想定描述（来自想定目录下的 description.json）
+     * @param scenarioDir 想定目录路径
+     * @return 想定描述，无描述返回空字符串
+     */
+    QString loadScenarioDescription(const QString &scenarioDir);
+
+    /**
+     * @brief 读取该想定全部数据文件描述
+     * @param scenarioDir 想定目录路径
+     * @return 文件名（"回放数据/"目录内）→ 描述 的映射
+     */
+    QMap<QString, QString> loadDataFileDescriptions(const QString &scenarioDir);
+
+    /**
+     * @brief 增量合并保存描述到想定目录下的 description.json
+     * @param scenarioDir  想定目录路径
+     * @param scenarioDesc 想定描述（空字符串表示删除想定描述）
+     * @param dataFileDescs 数据文件描述表（值为空的条目删除对应键）
+     * @return true 保存成功
+     * @note 仅读写 description.json，绝不修改想定 XML 与数据文件
+     */
+    bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
+                         const QMap<QString, QString> &dataFileDescs);
 
     /**
      * @brief 重命名想定文件夹（仅修改目录名，内部文件不变）
@@ -177,6 +205,21 @@ private:
 
     /** @brief 关联想定目录下的数据文件 */
     QStringList findDataFiles(const QString &scenarioDir);
+
+    /**
+     * @brief 读取想定目录下的 description.json（文件不存在或解析失败返回空对象）
+     */
+    QJsonObject loadDescriptionFile(const QString &scenarioDir) const;
+
+    /**
+     * @brief 将描述配置写入想定目录下的 description.json
+     */
+    bool writeDescriptionFile(const QString &scenarioDir, const QJsonObject &root) const;
+
+    /**
+     * @brief 只读解析想定 XML 中的 Description 属性（导入想定时作为初始描述，绝不写入 XML）
+     */
+    QString readXmlDescription(const QString &xmlPath) const;
 
     Scenario *m_currentScenario = nullptr;
 };

@@ -28,13 +28,15 @@ SOURCES += \
     DataReplayWidget.cpp \
     ScenarioFilterProxyModel.cpp \
     EntityFilterProxyModel.cpp \
-    ImportDialog.cpp
+    ImportDialog.cpp \
+    DescriptionDialog.cpp
 
 HEADERS += \
     DataReplayWidget.h \
     ScenarioFilterProxyModel.h \
     EntityFilterProxyModel.h \
-    ImportDialog.h
+    ImportDialog.h \
+    DescriptionDialog.h
 
 FORMS += \
     DataReplayWidget.ui

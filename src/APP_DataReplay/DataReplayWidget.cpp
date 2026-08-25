@@ -17,6 +17,7 @@
 #include "EntityFilterProxyModel.h"
 #include "ScenarioFilterProxyModel.h"
 #include "ImportDialog.h"
+#include "DescriptionDialog.h"
 
 #include <QTreeView>
 #include <QTableView>
@@ -236,11 +237,19 @@ void DataReplayWidget::refreshScenarioTree()
         QString dirPath = it.key();
         QString dirName = QFileInfo(dirPath).fileName();
 
+        // 读取该想定的描述配置（想定描述 + 数据文件描述），用于 tooltip 展示
+        QString scenarioDesc = m_server->loadScenarioDescription(dirPath);
+        QMap<QString, QString> dataFileDescs = m_server->loadDataFileDescriptions(dirPath);
+
         // ---- 想定文件夹节点 ----
         auto *scenarioItem = new QStandardItem(dirName);
         scenarioItem->setData(dirPath, Qt::UserRole);
         scenarioItem->setData("scenariodir", Qt::UserRole + 1);
-        scenarioItem->setToolTip(QStringLiteral("想定目录: %1").arg(dirPath));
+        QString scenarioTip = QStringLiteral("想定目录: %1").arg(dirPath);
+        if (!scenarioDesc.isEmpty()) {
+            scenarioTip += QStringLiteral("\n描述: %1").arg(scenarioDesc);
+        }
+        scenarioItem->setToolTip(scenarioTip);
         m_treeModel->invisibleRootItem()->appendRow(scenarioItem);
 
         // ---- XML 文件子节点 ----
@@ -271,7 +280,11 @@ void DataReplayWidget::refreshScenarioTree()
                 auto *fileItem = new QStandardItem(jsonFile);
                 fileItem->setData(jsonPath, Qt::UserRole);
                 fileItem->setData("datafile", Qt::UserRole + 1);
-                fileItem->setToolTip(QStringLiteral("数据文件: %1").arg(jsonPath));
+                QString fileTip = QStringLiteral("数据文件: %1").arg(jsonPath);
+                if (dataFileDescs.contains(jsonFile)) {
+                    fileTip += QStringLiteral("\n描述: %1").arg(dataFileDescs.value(jsonFile));
+                }
+                fileItem->setToolTip(fileTip);
                 dataFolderItem->appendRow(fileItem);
             }
         }
@@ -778,6 +791,14 @@ void DataReplayWidget::onTreeContextMenu(const QPoint &pos)
         menu.addSeparator();
     }
 
+    // 想定文件夹和数据文件节点支持「编辑描述」
+    if (nodeType == "scenariodir" || nodeType == "datafile") {
+        QAction *editDescAction = menu.addAction(QStringLiteral("编辑描述..."));
+        editDescAction->setData(QVariant::fromValue(sourceIndex));
+        connect(editDescAction, &QAction::triggered, this, &DataReplayWidget::onEditDescription);
+        menu.addSeparator();
+    }
+
     // 所有节点都支持重命名和删除
     QAction *renameAction = menu.addAction(QStringLiteral("重命名"));
     QAction *deleteAction = menu.addAction(QStringLiteral("删除"));
@@ -1040,6 +1061,93 @@ void DataReplayWidget::onRefreshDataFiles(const QModelIndex &sourceIndex)
         QStringLiteral("「%1」重新扫描完成，共 %2 个数据文件")
             .arg(scenarioName).arg(files.size()));
 
+    refreshScenarioTree();
+}
+
+// ==================== 编辑描述 ====================
+
+void DataReplayWidget::onEditDescription()
+{
+    QAction *action = qobject_cast<QAction *>(sender());
+    if (!action)
+        return;
+
+    QModelIndex sourceIndex = action->data().value<QModelIndex>();
+    if (!sourceIndex.isValid())
+        return;
+
+    // 按节点类型分发到想定/数据文件描述编辑
+    QString nodeType = sourceIndex.data(Qt::UserRole + 1).toString();
+    if (nodeType == "scenariodir") {
+        editScenarioDescription(sourceIndex);
+    } else if (nodeType == "datafile") {
+        editDataFileDescription(sourceIndex);
+    }
+}
+
+void DataReplayWidget::editScenarioDescription(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item)
+        return;
+
+    QString scenarioDir = item->data(Qt::UserRole).toString();
+    QString scenarioName = item->text();
+
+    // 读取当前想定描述
+    QString currentDesc = m_server->loadScenarioDescription(scenarioDir);
+
+    DescriptionDialog dlg(scenarioName, currentDesc, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    // 保存：想定描述 + 现有数据文件描述（增量合并，仅写 description.json）
+    QMap<QString, QString> dataFileDescs = m_server->loadDataFileDescriptions(scenarioDir);
+    if (!m_server->saveDescription(scenarioDir, dlg.description(), dataFileDescs)) {
+        QMessageBox::warning(this, QStringLiteral("错误"),
+                             QStringLiteral("保存想定描述失败"));
+        return;
+    }
+
+    m_server->log("INFO",
+        QStringLiteral("想定描述已保存: %1").arg(scenarioName));
+    refreshScenarioTree();
+}
+
+void DataReplayWidget::editDataFileDescription(const QModelIndex &sourceIndex)
+{
+    QStandardItem *item = m_treeModel->itemFromIndex(sourceIndex);
+    if (!item)
+        return;
+
+    QString fileName = item->text();
+
+    // 由树结构向上找想定目录：数据文件 → 回放数据 → 想定文件夹
+    QModelIndex dataFolderIdx = sourceIndex.parent();
+    QModelIndex scenarioIdx = dataFolderIdx.parent();
+    QString scenarioDir = scenarioIdx.data(Qt::UserRole).toString();
+    if (scenarioDir.isEmpty())
+        return;
+
+    // 读取当前数据文件描述（文件名 → 描述）
+    QMap<QString, QString> dataFileDescs = m_server->loadDataFileDescriptions(scenarioDir);
+    QString currentDesc = dataFileDescs.value(fileName);
+
+    DescriptionDialog dlg(fileName, currentDesc, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    // 更新该文件描述后整体保存（增量合并，仅写 description.json）
+    dataFileDescs[fileName] = dlg.description();
+    QString scenarioDesc = m_server->loadScenarioDescription(scenarioDir);
+    if (!m_server->saveDescription(scenarioDir, scenarioDesc, dataFileDescs)) {
+        QMessageBox::warning(this, QStringLiteral("错误"),
+                             QStringLiteral("保存数据文件描述失败"));
+        return;
+    }
+
+    m_server->log("INFO",
+        QStringLiteral("数据文件描述已保存: %1").arg(fileName));
     refreshScenarioTree();
 }
 

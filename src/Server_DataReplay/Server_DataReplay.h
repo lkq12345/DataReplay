@@ -84,6 +84,16 @@ public:
     /** @brief 增量保存实体ID映射到想定目录下的 mapping.json */
     bool saveEntityIdMapping(const QString &scenarioDir, const QMap<QString, QString> &newMappings);
 
+    /** @brief 读取想定描述（来自想定目录下的 description.json） */
+    QString loadScenarioDescription(const QString &scenarioDir);
+
+    /** @brief 读取该想定全部数据文件描述（文件名 → 描述） */
+    QMap<QString, QString> loadDataFileDescriptions(const QString &scenarioDir);
+
+    /** @brief 增量合并保存描述到想定目录下的 description.json（仅读写旁路配置，不改 XML/数据文件） */
+    bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
+                         const QMap<QString, QString> &dataFileDescs);
+
     /** @brief 重命名想定文件夹及其 XML 文件 */
     bool renameScenario(const QString &oldDirPath, const QString &newName);
 

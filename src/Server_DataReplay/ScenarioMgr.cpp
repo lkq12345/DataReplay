@@ -68,6 +68,7 @@ QList<ScenarioSummary> ScenarioMgr::scanScenarios()
                 summary.scenarioDir = dirInfo.absoluteFilePath();
                 summary.filePath    = xmlPath;
                 summary.entityCount = tempScenario.entities.size();
+                summary.description = loadScenarioDescription(summary.scenarioDir);
                 result.append(summary);
             }
         }
@@ -207,6 +208,41 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
     return !scenario.name.isEmpty();
 }
 
+QString ScenarioMgr::readXmlDescription(const QString &xmlPath) const
+{
+    // 只读解析想定 XML 中 ScenarioInfo/Attribute[@Name='Description'] 的 Value，
+    // 用于导入想定时作为初始想定描述写入 description.json；绝不写入/修改 XML。
+    QFile file(xmlPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Cannot open scenario file:" << xmlPath;
+        return QString();
+    }
+
+    QXmlStreamReader xml(&file);
+    while (!xml.atEnd() && !xml.hasError()) {
+        if (xml.readNext() == QXmlStreamReader::StartElement
+            && xml.name() == QLatin1String("ScenarioInfo")) {
+
+            while (!(xml.tokenType() == QXmlStreamReader::EndElement
+                     && xml.name() == QLatin1String("ScenarioInfo"))) {
+                xml.readNext();
+
+                if (xml.tokenType() == QXmlStreamReader::StartElement
+                    && xml.name() == QLatin1String("Attribute")) {
+                    QXmlStreamAttributes attrs = xml.attributes();
+                    if (attrs.value("Name").toString() == QLatin1String("Description")) {
+                        file.close();
+                        return attrs.value("Value").toString();
+                    }
+                }
+            }
+        }
+    }
+
+    file.close();
+    return QString();
+}
+
 QStringList ScenarioMgr::findDataFiles(const QString &scenarioDir)
 {
     QStringList dataFiles;
@@ -323,6 +359,106 @@ bool ScenarioMgr::saveEntityIdMapping(const QString &scenarioDir,
     qDebug() << "Entity ID mapping saved to:" << mappingPath
              << "total entries:" << entries.size();
     return true;
+}
+
+// ==================== 描述配置（description.json） ====================
+//
+// 说明：想定描述与数据文件描述统一存放在想定目录下的 description.json
+// 旁路配置文件中，绝不写入想定 XML 与数据文件本身。
+
+QJsonObject ScenarioMgr::loadDescriptionFile(const QString &scenarioDir) const
+{
+    QJsonObject root;
+    QFile file(scenarioDir + "/description.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        return root;    // 文件不存在 → 视为无描述
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+
+    if (!doc.isObject()) {
+        qWarning() << "description.json 解析失败:" << scenarioDir;
+        return root;    // 解析失败 → 视为无描述
+    }
+
+    return doc.object();
+}
+
+bool ScenarioMgr::writeDescriptionFile(const QString &scenarioDir, const QJsonObject &root) const
+{
+    const QString path = scenarioDir + "/description.json";
+    QFile outFile(path);
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "无法写入 description.json:" << path;
+        return false;
+    }
+
+    // Indented 生成带缩进和换行的格式化 JSON，便于人工阅读和手动编辑
+    outFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    outFile.close();
+    return true;
+}
+
+QString ScenarioMgr::loadScenarioDescription(const QString &scenarioDir)
+{
+    QJsonObject root = loadDescriptionFile(scenarioDir);
+    return root.value("想定").toObject().value("描述").toString();
+}
+
+QMap<QString, QString> ScenarioMgr::loadDataFileDescriptions(const QString &scenarioDir)
+{
+    QMap<QString, QString> result;
+    QJsonObject root = loadDescriptionFile(scenarioDir);
+    QJsonObject dataObj = root.value("数据文件").toObject();
+
+    for (auto it = dataObj.begin(); it != dataObj.end(); ++it) {
+        result[it.key()] = it.value().toString();
+    }
+    return result;
+}
+
+bool ScenarioMgr::saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
+                                   const QMap<QString, QString> &dataFileDescs)
+{
+    // ① 读取现有配置文件
+    QJsonObject root = loadDescriptionFile(scenarioDir);
+
+    // ② 想定描述：空值删除键，非空设置
+    QJsonObject scenarioObj = root.value("想定").toObject();
+    if (scenarioDesc.isEmpty()) {
+        scenarioObj.remove("描述");
+    } else {
+        scenarioObj["描述"] = scenarioDesc;
+    }
+    if (scenarioObj.isEmpty()) {
+        root.remove("想定");
+    } else {
+        root["想定"] = scenarioObj;
+    }
+
+    // ③ 数据文件描述：增量合并（值为空的条目删除对应键）
+    QJsonObject dataObj = root.value("数据文件").toObject();
+    for (auto it = dataFileDescs.begin(); it != dataFileDescs.end(); ++it) {
+        if (it.value().isEmpty()) {
+            dataObj.remove(it.key());
+        } else {
+            dataObj[it.key()] = it.value();
+        }
+    }
+    if (dataObj.isEmpty()) {
+        root.remove("数据文件");
+    } else {
+        root["数据文件"] = dataObj;
+    }
+
+    // ④ 全部为空 → 删除配置文件（保持目录整洁）
+    if (root.isEmpty()) {
+        QFile::remove(scenarioDir + "/description.json");
+        return true;
+    }
+
+    return writeDescriptionFile(scenarioDir, root);
 }
 
 // ==================== 文件管理操作 ====================
@@ -587,6 +723,15 @@ bool ScenarioMgr::importScenario(const QString &xmlSourcePath,
     if (!dir.mkpath(replayDirPath)) {
         qWarning() << "无法创建回放数据目录:" << replayDirPath;
         return false;
+    }
+
+    // ⑤ 只读解析源 XML 的 Description 属性，作为初始想定描述写入 description.json
+    //    （绝不写入/修改源 XML 或复制的目标 XML）
+    QString xmlDesc = readXmlDescription(xmlSourcePath);
+    if (!xmlDesc.isEmpty()) {
+        QJsonObject root;
+        root["想定"] = QJsonObject{{"描述", xmlDesc}};
+        writeDescriptionFile(targetDir, root);
     }
 
     qDebug() << "importScenario 完成:" << targetDirName
