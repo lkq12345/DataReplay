@@ -525,6 +525,19 @@ bool ScenarioMgr::renameDataFile(const QString &oldFilePath, const QString &newN
             m_currentScenario->dataFiles[idx] = newFilePath;
     }
 
+    // 同步 description.json 中的描述键名（仅当文件位于"回放数据/"目录时）
+    // 旧键置空触发删除、新键写入原描述，避免重命名后描述"丢失"
+    if (QFileInfo(parentDir).fileName() == QStringLiteral("回放数据")) {
+        QString scenarioDir = QFileInfo(parentDir).absolutePath();
+        QMap<QString, QString> descs = loadDataFileDescriptions(scenarioDir);
+        const QString oldFileName = fi.fileName();
+        if (descs.contains(oldFileName)) {
+            descs[newName] = descs.value(oldFileName);
+            descs[oldFileName] = QString();   // 空值 → saveDescription 删除旧键
+            saveDescription(scenarioDir, loadScenarioDescription(scenarioDir), descs);
+        }
+    }
+
     qDebug() << "数据文件已重命名:" << oldFilePath << "->" << newFilePath;
     return true;
 }
@@ -576,6 +589,19 @@ bool ScenarioMgr::deleteDataFile(const QString &filePath)
     // 从当前想定的 dataFiles 列表中移除
     if (m_currentScenario)
         m_currentScenario->dataFiles.removeAll(filePath);
+
+    // 清理 description.json 中对应的描述条目（仅当文件位于"回放数据/"目录时）
+    // 该文件键置空触发删除，避免残留无用键值对
+    QFileInfo fi(filePath);
+    QString parentDir = fi.absolutePath();
+    if (QFileInfo(parentDir).fileName() == QStringLiteral("回放数据")) {
+        QString scenarioDir = QFileInfo(parentDir).absolutePath();
+        QMap<QString, QString> descs = loadDataFileDescriptions(scenarioDir);
+        if (descs.contains(fi.fileName())) {
+            descs[fi.fileName()] = QString();   // 空值 → saveDescription 删除该键
+            saveDescription(scenarioDir, loadScenarioDescription(scenarioDir), descs);
+        }
+    }
 
     qDebug() << "数据文件已删除:" << filePath;
     return true;

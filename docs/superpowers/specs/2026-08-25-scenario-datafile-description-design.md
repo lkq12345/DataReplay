@@ -105,6 +105,12 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 - **首次导入**（`importScenario`）：若源 XML 含 `Description` 属性，**只读**解析该属性，作为想定描述的初始值写入目标 `description.json`；**绝不写入/修改源 XML 或目标 XML**，之后编辑也不触碰 XML。
 - `scanScenarios()` 构建 `ScenarioSummary` 时顺带读取该想定目录的 `description.json`（文件极小，性能可忽略）。
 
+### 4.5 描述键随文件重命名/删除同步（已实现）
+
+- `renameDataFile()`：文件位于"回放数据/"目录时，读取该想定描述表 → 旧键置空（触发删除）+ 新键写入原描述 → `saveDescription()` 写回，避免重命名后描述"丢失"。
+- `deleteDataFile()`：文件位于"回放数据/"目录时，读取该想定描述表 → 该文件键置空（触发删除）→ `saveDescription()` 写回，避免残留无用键值对。
+- 复用 `saveDescription` 的"值为空删除对应键"语义，无需改动其接口。
+
 ## 五、APP 层改动（DataReplayWidget）
 
 ### 5.1 展示（tooltip）
@@ -147,7 +153,8 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 |---|---|
 | `description.json` 不存在 | 视为空描述；首次保存时创建 |
 | JSON 解析失败 | 告警日志（qWarning）+ 按空描述处理；保存时重建文件 |
-| 想定/数据文件被重命名或删除 | 描述键基于文件名，旧键自然失效；本期不做键迁移（见"非目标"） |
+| 数据文件被重命名 | 同步迁移描述键（旧键删除、新键写入原描述，见 4.5） |
+| 数据文件被删除 | 同步清理 description.json 中对应条目（见 4.5） |
 | 描述含特殊字符/换行 | `QJsonDocument` 自动转义；tooltip 用 `setToolTip` 安全显示 |
 
 ## 八、测试
@@ -161,9 +168,10 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 ## 九、非目标（YAGNI）
 
 - 不在想定 XML 中回写描述（避免破坏现有 XML 格式与兼容性）。
-- 不做描述键随文件重命名/删除的迁移（文件名变更后旧描述自然失效，可后续按需补充）。
 - 不做富文本/多语言/描述搜索等高阶能力。
 - 不在数据文件内嵌描述。
+
+> 说明：数据文件重命名/删除时的描述键迁移**已实现**（见 4.5），不再属于非目标。
 
 ## 十、涉及文件清单
 
