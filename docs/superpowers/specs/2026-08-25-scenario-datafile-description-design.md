@@ -25,8 +25,9 @@
 
 | 决策点 | 结论 |
 |---|---|
-| 描述可编辑性 | 可编辑并保存（想定 + 数据文件均可） |
+| 描述可编辑性 | 可编辑并保存（想定文件 + 数据文件均可） |
 | 存储位置 | 旁路配置文件 `description.json`（与现有 `mapping.json` 模式一致） |
+| 描述挂载节点 | **想定文件（XML 节点）**与**数据文件（JSON 节点）**支持描述；想定文件夹、回放数据文件夹**不支持** |
 | UI 展示 | 树节点悬停 tooltip 显示描述 |
 | UI 编辑 | 树节点右键菜单「编辑描述…」弹出对话框 |
 
@@ -109,14 +110,16 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 ### 5.1 展示（tooltip）
 
 - `refreshScenarioTree()` 构建树节点时，调用 `m_server->loadDataFileDescriptions(dir)` 获取全部描述，并按文件名/想定填充。
-- 想定目录节点 tooltip：现有内容 + `\n描述: <想定描述>`（无描述时省略描述行）。
+- 想定文件夹节点 tooltip：仅路径（**不支持描述**）。
+- **想定文件（XML 节点）** tooltip：现有内容 + `\n描述: <想定描述>`（无描述时省略描述行）。
 - 数据文件节点 tooltip：现有内容 + `\n描述: <文件描述>`。
 
 ### 5.2 编辑（右键菜单）
 
-- 想定目录节点右键菜单新增「编辑描述…」。
+- **想定文件（XML 节点）**右键菜单新增「编辑描述…」。
 - 数据文件节点右键菜单新增「编辑描述…」。
-- 想定描述编辑流程：`loadScenarioDescription(dir)` 取当前值填入 `DescriptionDialog` → 确定后 `saveDescription(dir, 新值, 现有文件描述表)`。
+- 想定文件夹、回放数据文件夹节点**不提供**「编辑描述」。
+- 想定描述编辑流程：从 XML 节点路径反推想定目录 → `loadScenarioDescription(dir)` 取当前值填入 `DescriptionDialog` → 确定后 `saveDescription(dir, 新值, 现有文件描述表)`。
 - 数据文件描述编辑流程：`loadDataFileDescriptions(dir)` 取全量 → 以该文件名为 key 取出当前值填入 `DescriptionDialog` → 确定后更新该 key 并整体 `saveDescription(...)`。
 - 保存成功后 `refreshScenarioTree()` 刷新 tooltip。
 
@@ -131,9 +134,9 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 
 ```
 启动/刷新树 → loadDataFileDescriptions(dir) → 读 description.json
-           → 想定节点/数据文件节点 tooltip 附加描述
+           → 想定文件（XML）节点/数据文件节点 tooltip 附加描述
 
-右键「编辑描述」→ DescriptionDialog 输入
+右键「编辑描述」（XML/数据文件节点）→ DescriptionDialog 输入
            → saveDescription(dir, scenarioDesc, dataFileDescs) → 增量合并写回 description.json
            → refreshScenarioTree() 更新 tooltip
 ```
@@ -166,13 +169,13 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 
 | 文件 | 变更 | 说明 |
 |---|---|---|
-| `src/Server_DataReplay/ScenarioMgr.h` | 修改 | `Scenario`/`ScenarioSummary` 加 `description`；新增 4 个接口声明 |
+| `src/Server_DataReplay/ScenarioMgr.h` | 修改 | `Scenario`/`ScenarioSummary` 加 `description`；新增 3 个接口声明 |
 | `src/Server_DataReplay/ScenarioMgr.cpp` | 修改 | 实现描述读写（load/save）与增量合并；`scanScenarios` 填充 description |
 | `src/Server_DataReplay/ScenarioMgr.cpp`（导入） | 修改 | `importScenario` 读取源 XML 的 `Description`，作为初始想定描述写入 `description.json`（不修改 XML） |
-| `src/Server_DataReplay/Server_DataReplay.h` | 修改 | 新增 4 个 Facade 转发声明 |
+| `src/Server_DataReplay/Server_DataReplay.h` | 修改 | 新增 3 个 Facade 转发声明 |
 | `src/Server_DataReplay/Server_DataReplay.cpp` | 修改 | Facade 转发实现 |
-| `src/APP_DataReplay/DataReplayWidget.cpp` | 修改 | 树节点 tooltip 附加描述；右键菜单两项 + 槽函数 |
-| `src/APP_DataReplay/DataReplayWidget.h` | 修改 | 新增 `onEditScenarioDescription` / `onEditDataFileDescription` 槽 |
+| `src/APP_DataReplay/DataReplayWidget.cpp` | 修改 | 树节点 tooltip 附加描述（想定文件 XML 节点 + 数据文件节点）；右键菜单「编辑描述」两项 + 槽函数 |
+| `src/APP_DataReplay/DataReplayWidget.h` | 修改 | 新增 `onEditDescription` 槽 + `editScenarioDescription`/`editDataFileDescription` 私有方法 |
 | `src/APP_DataReplay/DescriptionDialog.h` | 新增 | 描述编辑对话框声明 |
 | `src/APP_DataReplay/DescriptionDialog.cpp` | 新增 | 描述编辑对话框实现 |
 | `src/APP_DataReplay/APP_DataReplay.pro` | 修改 | 注册 `DescriptionDialog.cpp/h` |
