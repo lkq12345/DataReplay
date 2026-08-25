@@ -10,7 +10,16 @@
 
 目标：为想定和数据文件增加**可编辑并持久化保存**的描述功能，通过**树节点悬停提示**展示、**右键菜单"编辑描述"**修改。
 
-关键约束：**不修改想定 XML 文件内容，不修改数据文件内容**（数据文件为回放数据源，内嵌描述会破坏数据格式）。
+## 〇、硬性约束（用户强调）
+
+**不得修改想定 XML 文件和数据文件中的任何内容。**
+
+| 操作 | 允许性 | 说明 |
+|---|---|---|
+| 写入/改写想定 XML（含回写 `Description` 属性） | ❌ 禁止 | 描述不回写 XML |
+| 写入/改写任何数据文件（`回放数据/*.json` 等） | ❌ 禁止 | 数据文件为回放数据源，内嵌描述会破坏数据格式 |
+| 只读解析想定 XML（如导入时读取 `Description` 作初始值） | ✅ 允许 | 仅读取，绝不写入 |
+| 新增/修改旁路配置文件（`description.json`、`mapping.json`） | ✅ 允许 | 描述仅存于此，与数据隔离 |
 
 ## 二、需求决策（用户确认）
 
@@ -92,7 +101,7 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 ### 4.4 与现有代码衔接
 
 - `parseScenarioXml()` **保持不变**：描述以 `description.json` 为准，XML 的 `Description` 属性不参与解析。
-- **首次导入**（`importScenario`）：若源 XML 含 `Description` 属性，解析后作为想定描述的初始值写入目标 `description.json`；之后编辑不触碰 XML。
+- **首次导入**（`importScenario`）：若源 XML 含 `Description` 属性，**只读**解析该属性，作为想定描述的初始值写入目标 `description.json`；**绝不写入/修改源 XML 或目标 XML**，之后编辑也不触碰 XML。
 - `scanScenarios()` 构建 `ScenarioSummary` 时顺带读取该想定目录的 `description.json`（文件极小，性能可忽略）。
 
 ## 五、APP 层改动（DataReplayWidget）
@@ -159,7 +168,7 @@ bool saveDescription(const QString &scenarioDir, const QString &scenarioDesc,
 |---|---|---|
 | `src/Server_DataReplay/ScenarioMgr.h` | 修改 | `Scenario`/`ScenarioSummary` 加 `description`；新增 4 个接口声明 |
 | `src/Server_DataReplay/ScenarioMgr.cpp` | 修改 | 实现描述读写（load/save）与增量合并；`scanScenarios` 填充 description |
-| `src/Server_DataReplay/ScenarioMgr.cpp`（导入） | 修改 | `importScenario` 写入 XML Description 作为初始想定描述 |
+| `src/Server_DataReplay/ScenarioMgr.cpp`（导入） | 修改 | `importScenario` 读取源 XML 的 `Description`，作为初始想定描述写入 `description.json`（不修改 XML） |
 | `src/Server_DataReplay/Server_DataReplay.h` | 修改 | 新增 4 个 Facade 转发声明 |
 | `src/Server_DataReplay/Server_DataReplay.cpp` | 修改 | Facade 转发实现 |
 | `src/APP_DataReplay/DataReplayWidget.cpp` | 修改 | 树节点 tooltip 附加描述；右键菜单两项 + 槽函数 |
