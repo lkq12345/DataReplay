@@ -241,25 +241,21 @@ void DataReplayWidget::refreshScenarioTree()
         QString scenarioDesc = m_server->loadScenarioDescription(dirPath);
         QMap<QString, QString> dataFileDescs = m_server->loadDataFileDescriptions(dirPath);
 
-        // ---- 想定文件夹节点（不支持描述，仅显示路径） ----
+        // ---- 想定文件夹节点（不支持描述，无 tooltip） ----
         auto *scenarioItem = new QStandardItem(dirName);
         scenarioItem->setData(dirPath, Qt::UserRole);
         scenarioItem->setData("scenariodir", Qt::UserRole + 1);
-        scenarioItem->setToolTip(QStringLiteral("想定目录: %1").arg(dirPath));
         m_treeModel->invisibleRootItem()->appendRow(scenarioItem);
 
-        // ---- XML 文件子节点（想定文件，支持描述） ----
+        // ---- XML 文件子节点（想定文件，tooltip 仅显示描述） ----
         for (const auto &summary : it.value()) {
             QString xmlName = QFileInfo(summary.filePath).fileName();
             auto *xmlItem = new QStandardItem(xmlName);
             xmlItem->setData(summary.filePath, Qt::UserRole);
             xmlItem->setData("xmlfile", Qt::UserRole + 1);
-            QString xmlTip = QStringLiteral("想定文件: %1\n实体: %2个")
-                             .arg(summary.filePath).arg(summary.entityCount);
             if (!scenarioDesc.isEmpty()) {
-                xmlTip += QStringLiteral("\n描述: %1").arg(scenarioDesc);
+                xmlItem->setToolTip(QStringLiteral("描述: %1").arg(scenarioDesc));
             }
-            xmlItem->setToolTip(xmlTip);
             scenarioItem->appendRow(xmlItem);
         }
 
@@ -270,7 +266,6 @@ void DataReplayWidget::refreshScenarioTree()
             auto *dataFolderItem = new QStandardItem(QStringLiteral("回放数据"));
             dataFolderItem->setData(replayDirPath, Qt::UserRole);
             dataFolderItem->setData("datafolder", Qt::UserRole + 1);
-            dataFolderItem->setToolTip(QStringLiteral("回放数据目录: %1").arg(replayDirPath));
             scenarioItem->appendRow(dataFolderItem);
 
             const QStringList jsonFiles = replayDir.entryList(
@@ -280,11 +275,10 @@ void DataReplayWidget::refreshScenarioTree()
                 auto *fileItem = new QStandardItem(jsonFile);
                 fileItem->setData(jsonPath, Qt::UserRole);
                 fileItem->setData("datafile", Qt::UserRole + 1);
-                QString fileTip = QStringLiteral("数据文件: %1").arg(jsonPath);
-                if (dataFileDescs.contains(jsonFile)) {
-                    fileTip += QStringLiteral("\n描述: %1").arg(dataFileDescs.value(jsonFile));
+                const QString fileDesc = dataFileDescs.value(jsonFile);
+                if (!fileDesc.isEmpty()) {
+                    fileItem->setToolTip(QStringLiteral("描述: %1").arg(fileDesc));
                 }
-                fileItem->setToolTip(fileTip);
                 dataFolderItem->appendRow(fileItem);
             }
         }
