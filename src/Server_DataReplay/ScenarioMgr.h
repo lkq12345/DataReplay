@@ -216,11 +216,6 @@ private:
      */
     bool writeDescriptionFile(const QString &scenarioDir, const QJsonObject &root) const;
 
-    /**
-     * @brief 只读解析想定 XML 中的 Description 属性（导入想定时作为初始描述，绝不写入 XML）
-     */
-    QString readXmlDescription(const QString &xmlPath) const;
-
     Scenario *m_currentScenario = nullptr;
 };
 

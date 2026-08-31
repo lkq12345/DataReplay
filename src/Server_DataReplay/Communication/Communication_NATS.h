@@ -13,6 +13,7 @@
 #include "NATS/nats/nats.h"
 #include <QObject>
 #include <QTimer>
+#include <QByteArray>
 #include <QXmlStreamReader>
 #include "Server_DataReplay_global.h"
 #include "Service_Communication_Factory.h"
@@ -81,6 +82,13 @@ signals:
      * @param connected true 表示已成功连接并完成主题订阅
      */
     void natsConnected(bool connected);
+
+    /**
+     * @brief NATS 消息到达信号（在 NATS I/O 线程发射，参数为值拷贝，跨线程安全）
+     * @param topic 消息主题
+     * @param data  消息数据
+     */
+    void messageReceived(const QString &topic, const QByteArray &data);
 
 private:
     Communication_NATS();

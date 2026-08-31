@@ -18,6 +18,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QByteArray>
 #include <QDateTime>
 #include <QMap>
 #include <QList>
@@ -172,6 +173,9 @@ signals:
 
     /** @brief 日志消息（转发自内部 LogService，APP 连接此信号即可展示日志） */
     void newLog(const QString &formattedMessage);
+
+    /** @brief NATS 消息到达（转发自 Communication_NATS，APP 通过此信号接收外部指令） */
+    void natsMessageReceived(const QString &topic, const QByteArray &data);
 
 private:
     ScenarioMgr  *m_scenarioMgr  = nullptr;

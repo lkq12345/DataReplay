@@ -208,41 +208,6 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
     return !scenario.name.isEmpty();
 }
 
-QString ScenarioMgr::readXmlDescription(const QString &xmlPath) const
-{
-    // 只读解析想定 XML 中 ScenarioInfo/Attribute[@Name='Description'] 的 Value，
-    // 用于导入想定时作为初始想定描述写入 description.json；绝不写入/修改 XML。
-    QFile file(xmlPath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Cannot open scenario file:" << xmlPath;
-        return QString();
-    }
-
-    QXmlStreamReader xml(&file);
-    while (!xml.atEnd() && !xml.hasError()) {
-        if (xml.readNext() == QXmlStreamReader::StartElement
-            && xml.name() == QLatin1String("ScenarioInfo")) {
-
-            while (!(xml.tokenType() == QXmlStreamReader::EndElement
-                     && xml.name() == QLatin1String("ScenarioInfo"))) {
-                xml.readNext();
-
-                if (xml.tokenType() == QXmlStreamReader::StartElement
-                    && xml.name() == QLatin1String("Attribute")) {
-                    QXmlStreamAttributes attrs = xml.attributes();
-                    if (attrs.value("Name").toString() == QLatin1String("Description")) {
-                        file.close();
-                        return attrs.value("Value").toString();
-                    }
-                }
-            }
-        }
-    }
-
-    file.close();
-    return QString();
-}
-
 QStringList ScenarioMgr::findDataFiles(const QString &scenarioDir)
 {
     QStringList dataFiles;
@@ -749,15 +714,6 @@ bool ScenarioMgr::importScenario(const QString &xmlSourcePath,
     if (!dir.mkpath(replayDirPath)) {
         qWarning() << "无法创建回放数据目录:" << replayDirPath;
         return false;
-    }
-
-    // ⑤ 只读解析源 XML 的 Description 属性，作为初始想定描述写入 description.json
-    //    （绝不写入/修改源 XML 或复制的目标 XML）
-    QString xmlDesc = readXmlDescription(xmlSourcePath);
-    if (!xmlDesc.isEmpty()) {
-        QJsonObject root;
-        root["想定"] = QJsonObject{{"描述", xmlDesc}};
-        writeDescriptionFile(targetDir, root);
     }
 
     qDebug() << "importScenario 完成:" << targetDirName

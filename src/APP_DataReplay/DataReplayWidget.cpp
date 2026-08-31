@@ -40,6 +40,8 @@
 #include <QInputDialog>
 #include <QRegularExpression>
 #include <QFileDialog>
+#include <QJsonObject>
+#include <QItemSelectionModel>
 
 // ==================== 列索引定义 ====================
 enum EntityColumn {
@@ -172,6 +174,10 @@ void DataReplayWidget::initConnects()
     // -- NATS 连接状态信号（通过 Facade 转发） --
     connect(m_server, &Server_DataReplay::natsConnected,
             this, &DataReplayWidget::onNatsConnected);
+
+    // -- 外部 NATS 指令（经 Facade 转发，QueuedConnection 保证槽在主线程执行） --
+    connect(m_server, &Server_DataReplay::natsMessageReceived,
+            this, &DataReplayWidget::onNATSMessage);
 }
 
 void DataReplayWidget::closeEvent(QCloseEvent *event)
@@ -1191,4 +1197,91 @@ void DataReplayWidget::onImportScenario()
 
     // ⑤ 刷新界面
     refreshScenarioTree();
+}
+
+// ==================== 外部 NATS 指令控制 ====================
+//
+// 通过 NATS 接收外部控制指令，驱动回放操作：
+//   {"topic":"INIT","filename":"xxx.json"}  → 查找并选中数据文件，初始化
+//   {"topic":"START"}                       → 开始回放
+//   {"topic":"PAUSE"}                       → 暂停回放
+//   {"topic":"RESUME"}                      → 继续回放
+//   {"topic":"STOP"}                        → 停止回放
+// 本函数由 Facade 的 natsMessageReceived 信号调用，已在主线程执行。
+
+void DataReplayWidget::onNATSMessage(const QString &topicName, const QByteArray &data)
+{
+    // 解析 JSON（data 为长度明确的二进制数据，不会越界读取）
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+
+    if (doc.isNull() || !doc.isObject()) {
+        qWarning() << "onNATSMessage: JSON 解析失败, error =" << parseError.errorString();
+        return;
+    }
+
+    const QJsonObject obj = doc.object();
+    const QString fileName = obj.value(QLatin1String("filename")).toString();
+    const QString cmd      = obj.value(QLatin1String("topic")).toString();
+
+    if (cmd.isEmpty()) {
+        qWarning() << "onNATSMessage: 缺少指令字段 topic";
+        return;
+    }
+
+    if (cmd == QLatin1String("INIT")) {
+        handleInitCommand(fileName);
+    } else if (cmd == QLatin1String("START")) {
+        onStart();
+    } else if (cmd == QLatin1String("PAUSE")) {
+        onPause();
+    } else if (cmd == QLatin1String("RESUME")) {
+        onResume();
+    } else if (cmd == QLatin1String("STOP")) {
+        onStop();
+    } else {
+        qWarning() << "onNATSMessage: 未知指令" << cmd;
+    }
+}
+
+void DataReplayWidget::handleInitCommand(const QString &fileName)
+{
+    QStandardItem *root = m_treeModel->invisibleRootItem();
+
+    // 遍历所有想定文件夹 → "回放数据"文件夹 → 匹配文件名的数据文件。
+    // 按节点类型标记（UserRole+1）查找，不硬编码树中的位置。
+    for (int s = 0; s < root->rowCount(); ++s) {
+        QStandardItem *scenarioItem = root->child(s);
+        if (!scenarioItem
+            || scenarioItem->data(Qt::UserRole + 1).toString() != QStringLiteral("scenariodir"))
+            continue;
+
+        for (int d = 0; d < scenarioItem->rowCount(); ++d) {
+            QStandardItem *folderItem = scenarioItem->child(d);
+            if (!folderItem
+                || folderItem->data(Qt::UserRole + 1).toString() != QStringLiteral("datafolder"))
+                continue;
+
+            for (int f = 0; f < folderItem->rowCount(); ++f) {
+                QStandardItem *fileItem = folderItem->child(f);
+                if (!fileItem || fileItem->text() != fileName)
+                    continue;
+
+                // 找到目标数据文件：源索引 → proxy 索引（view 只认 proxy），唯一选中
+                QModelIndex proxyIdx = m_proxyModel->mapFromSource(fileItem->index());
+                QItemSelectionModel *selModel = ui->treeView_Scenario->selectionModel();
+                selModel->select(proxyIdx,
+                                 QItemSelectionModel::ClearAndSelect
+                                 | QItemSelectionModel::Current);
+                ui->treeView_Scenario->setCurrentIndex(proxyIdx);
+                ui->treeView_Scenario->scrollTo(proxyIdx);
+
+                // 复用现有初始化流程（加载想定 + 填充实体表 + 设置映射 + initReplay）
+                onInit();
+                return;
+            }
+        }
+    }
+
+    qWarning() << "onNATSMessage INIT: 未找到数据文件" << fileName;
 }

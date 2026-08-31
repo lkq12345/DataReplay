@@ -66,6 +66,12 @@ Server_DataReplay::Server_DataReplay(QObject *parent)
                 }
                 emit natsConnected(connected);
             });
+
+    // ---- NATS 消息转发（Communication_NATS → Facade → APP） ----
+    // Communication_NATS 在 I/O 线程发射，经 QueuedConnection 转发后
+    // natsMessageReceived 在 Facade（主线程）发射，APP 槽在主线程安全执行。
+    connect(&Communication_NATS::getInstance(), &Communication_NATS::messageReceived,
+            this, &Server_DataReplay::natsMessageReceived);
 }
 
 Server_DataReplay::~Server_DataReplay()

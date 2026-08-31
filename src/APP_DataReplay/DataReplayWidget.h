@@ -14,6 +14,9 @@
 #include <QIntValidator>
 #include <QMap>
 #include <QPoint>
+#include <QByteArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
 
 #include "Server_DataReplay.h"
 
@@ -121,6 +124,9 @@ private slots:
     /** @brief 编辑描述（右键菜单入口，按节点类型分发到想定/数据文件描述编辑） */
     void onEditDescription();
 
+    /** @brief 接收外部 NATS 指令（INIT/START/PAUSE/RESUME/STOP），主线程执行 */
+    void onNATSMessage(const QString &topicName, const QByteArray &data);
+
     /** @brief 导入想定（完整 UI 流程入口） */
     void onImportScenario();
 
@@ -161,6 +167,10 @@ private:
     /** @brief 编辑数据文件描述（弹出 DescriptionDialog 并保存到 description.json） */
     void editDataFileDescription(const QModelIndex &sourceIndex);
 
+    /** @brief INIT 指令：在文件树中查找指定数据文件并选中，复用初始化流程 */
+    void handleInitCommand(const QString &fileName);
+
+private:
     Ui::DataReplayWidget *ui;
 
     // 后端 Facade（统一入口）

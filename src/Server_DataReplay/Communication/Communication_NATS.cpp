@@ -187,11 +187,13 @@ void Communication_NATS::handleFuncPointerToPlatform(void *pPointer, const char 
 
 void Communication_NATS::onMsgHandleToPlatform(const char *subject, void *msg, unsigned int unlength)
 {
-    // 将接收到的NATS消息通过内部通信分发给平台内部订阅者
+    // 将接收到的 NATS 消息转发给订阅者。
+    // 注意：本函数在 NATS 库的 I/O 线程中执行，此处仅做值拷贝后发射信号，
+    // 连接方在主线程时信号经 QueuedConnection 自动转发，槽在 UI 线程执行。
     if (subject && msg && unlength > 0) {
-        QString topic = QString::fromUtf8(subject);
-        QByteArray data(static_cast<const char*>(msg), unlength);
-
+        emit messageReceived(QString::fromUtf8(subject),
+                             QByteArray(static_cast<const char *>(msg),
+                                        static_cast<int>(unlength)));
     }
 }
 
