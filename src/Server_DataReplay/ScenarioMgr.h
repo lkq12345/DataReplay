@@ -33,6 +33,7 @@ struct ImportPreview {
 struct EntityInfo {
     QString id;             //!< 实体唯一标识，例如 "1001"（来自 Entity 元素的 ID 属性）
     QString name;           //!< 实体显示名称，例如 "东方之星"（来自 Entity 元素的 Name 属性）
+    QMap<QString, double> attributes;   //!< 初始属性（属性名→值，来自 XML 的 Attribute 数值属性，如 x/y/z/speed）
 };
 
 /**

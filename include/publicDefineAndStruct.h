@@ -11,6 +11,7 @@
 #include <QString>
 #include <QMap>
 #include <QDataStream>
+#include <QMetaType>
 
 /** @brief NATS配置文件路径 */
 #define NATSCONFIG                  "../config/NATS/NatsConfig.xml"      //NATS配置文件
@@ -50,5 +51,18 @@ enum CommunicationResult
 typedef void(*registerInteriorMsg)(void*,const char *,void*,unsigned int);  //内部(函数指针，主题，数据，大小)
 /** @brief NATS消息回调函数指针类型（函数指针，主题，数据，数据大小） */
 typedef void(*registerNATSMsg)(void*,const char *,void*,unsigned int);  //NATS(函数指针，主题，数据，大小)
+
+/**
+ * @brief 运行时实体状态（实体ID + 属性名→值）
+ *
+ * 用于实体状态面板：想定初始值（从 XML 解析）与回放实时值（从数据解析）统一用此结构。
+ * 属性种类/个数可扩展（如 x/y/z，未来可加 speed/heading 等），仅需修改跟踪属性名列表。
+ */
+struct EntityState {
+    QString id;                            //!< 实体ID（与想定实体对应）
+    QMap<QString, double> attributes;      //!< 属性名→值（如 "x"→50000, "y"→50000, "z"→0）
+};
+
+Q_DECLARE_METATYPE(EntityState)
 
 #endif // PUBLICDEFINEANDSTRUCT_H

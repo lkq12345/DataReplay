@@ -27,11 +27,13 @@
 #include <QString>
 #include <QDateTime>
 #include <QMap>
+#include <QHash>
 #include <QAtomicInteger>
 #include <QMetaType>
 #include <QMutex>
 
 #include "DataFileReader.h"   // DataFileInfo、DataFileReader、DataRecord
+#include "publicDefineAndStruct.h"   // EntityState
 
 /**
  * @brief 单个时间窗口的处理结果（由 worker 线程回传给主线程）
@@ -69,6 +71,14 @@ public:
     quint64 epoch() const { return m_epoch.loadAcquire(); }
 
     /**
+     * @brief 当前跟踪/显示的属性名列表（唯一配置点）
+     *
+     * 后期要增减显示的属性（如加 speed/heading），只需修改 m_trackedAttributes，
+     * XML 解析、数据解析、表格列、增量更新均自动适配。
+     */
+    QStringList trackedAttributes() const { return m_trackedAttributes; }
+
+    /**
      * @brief 设置实体ID映射表（线程安全，供主线程直接调用）
      *
      * 通过 QMutex 保护，主线程与 worker 线程可并发安全访问。
@@ -96,6 +106,9 @@ signals:
     /** @brief 单个窗口处理完成，回传处理结果 */
     void windowProcessed(const WindowResult &result);
 
+    /** @brief 实体状态更新（每窗口一次，只含位置/属性发生变化的实体，worker 线程发射） */
+    void entityStatesUpdated(const QList<EntityState> &changed);
+
     /** @brief worker 内部日志（转发给 ReplayEngine，最终进入 LogService） */
     void logMessage(const QString &level, const QString &message);
 
@@ -106,10 +119,17 @@ private:
     /** @brief 对 payload 中所有匹配的实体ID模式执行映射替换（使用传入的映射快照） */
     void applyEntityIdMapping(const QMap<QString, QString> &mapping, QString &payload);
 
+    /** @brief 解析单条数据的实体状态（entity + 跟踪属性），更新状态表并收集变化 */
+    void parseEntityState(const QString &jsonPayload, QList<EntityState> &changedList);
+
     DataFileReader *m_reader = nullptr;       //!< 数据文件读取器（worker 线程创建与使用）
     mutable QMutex   m_mappingMutex;          //!< 保护 m_mapping 的互斥锁（主线程/worker 线程共享）
     QMap<QString, QString> m_mapping;         //!< 实体ID映射表（原始ID → 映射ID）
     QAtomicInteger<quint64> m_epoch;          //!< 原子代次号（0 初始）
+
+    // ---- 实体状态（worker 线程内维护） ----
+    QStringList m_trackedAttributes = { "x", "y", "z" };   //!< 跟踪/显示的属性名（唯一配置点）
+    QHash<QString, EntityState> m_entityStates;            //!< 实体ID → 运行时状态
 };
 
 #endif // REPLAYWORKER_H

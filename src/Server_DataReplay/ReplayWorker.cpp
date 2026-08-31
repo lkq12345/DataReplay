@@ -11,6 +11,10 @@
 
 #include <QByteArray>
 #include <QRegularExpression>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QJsonValue>
 
 ReplayWorker::ReplayWorker(QObject *parent)
     : QObject(parent)
@@ -18,6 +22,8 @@ ReplayWorker::ReplayWorker(QObject *parent)
     // 注册跨线程信号/槽需要排队传递的自定义类型
     qRegisterMetaType<DataFileInfo>("DataFileInfo");
     qRegisterMetaType<WindowResult>("WindowResult");
+    qRegisterMetaType<EntityState>("EntityState");
+    qRegisterMetaType<QList<EntityState>>("QList<EntityState>");
 }
 
 ReplayWorker::~ReplayWorker()
@@ -41,6 +47,9 @@ void ReplayWorker::openFile(const QString &filePath, quint64 epoch)
 {
     // 更新代次号，使队列中更早入队的旧窗口任务在随后执行时被识别为过期
     m_epoch.storeRelease(epoch);
+
+    // 重置运行时实体状态表（新的初始化从零开始）
+    m_entityStates.clear();
 
     // 清理旧的读取器
     if (m_reader) {
@@ -107,6 +116,12 @@ void ReplayWorker::processWindow(const QDateTime &windowStart, int stepMs, quint
         records = m_reader->readWindow(windowStart, stepMs);
     }
 
+    // ---- 实体状态解析（必须在实体ID替换之前，用原始实体ID与想定实体匹配） ----
+    QList<EntityState> changedStates;
+    for (const DataRecord &record : records) {
+        parseEntityState(record.jsonPayload, changedStates);
+    }
+
     // 实体ID映射替换：对每条数据的 payload 执行4种正则模式匹配。
     // 先取一次映射快照（加锁拷贝），窗口内所有记录共用，避免逐条加锁。
     const QMap<QString, QString> mapping = mappingSnapshot();
@@ -122,6 +137,11 @@ void ReplayWorker::processWindow(const QDateTime &windowStart, int stepMs, quint
             Communication_NATS::getInstance().sendMsgData(
                 (void *)payload.data(), payload.size(), topic);
         }
+    }
+
+    // 通知主线程实体状态变化（每窗口一次，只含变化的实体）
+    if (!changedStates.isEmpty()) {
+        emit entityStatesUpdated(changedStates);
     }
 
     result.valid = true;
@@ -206,5 +226,71 @@ void ReplayWorker::applyEntityIdMapping(const QMap<QString, QString> &mapping, Q
 
         result += payload.midRef(lastEnd);
         payload = result;
+    }
+}
+
+void ReplayWorker::parseEntityState(const QString &jsonPayload, QList<EntityState> &changedList)
+{
+    // 单条数据格式: {"data":{"entity":"1001","x":50000,"y":50000,"z":0,"simTime":{...},...}}
+    // 仅提取 entity 与 m_trackedAttributes 中的数值属性；字段缺失则跳过。
+    if (jsonPayload.isEmpty())
+        return;
+
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &error);
+    if (error.error != QJsonParseError::NoError || !doc.isObject())
+        return;
+
+    const QJsonObject dataObj = doc.object().value("data").toObject();
+    if (dataObj.isEmpty())
+        return;
+
+    // 实体ID：可能是字符串（"1001"）或数字（1001）
+    const QJsonValue entityVal = dataObj.value("entity");
+    if (entityVal.isUndefined())
+        return;
+    QString id = entityVal.isString() ? entityVal.toString()
+                                      : QString::number(entityVal.toDouble());
+    if (id.isEmpty())
+        return;
+
+    // 按跟踪属性名提取数值属性
+    QMap<QString, double> attrs;
+    bool hasAny = false;
+    for (const QString &name : m_trackedAttributes) {
+        const QJsonValue v = dataObj.value(name);
+        if (v.isDouble()) {
+            attrs[name] = v.toDouble();
+            hasAny = true;
+        }
+    }
+    if (!hasAny)
+        return;
+
+    // 更新状态表：与旧状态合并（本行缺失的属性保留旧值），
+    // 任一属性发生变化（或新实体）才加入变化列表。
+    auto it = m_entityStates.find(id);
+    if (it == m_entityStates.end()) {
+        EntityState st;
+        st.id = id;
+        st.attributes = attrs;
+        m_entityStates[id] = st;
+        changedList.append(st);
+    } else {
+        bool changed = false;
+        QMap<QString, double> merged = it->attributes;   // 旧值为基础
+        for (auto a = attrs.begin(); a != attrs.end(); ++a) {
+            if (!merged.contains(a.key()) || merged.value(a.key()) != a.value()) {
+                merged[a.key()] = a.value();
+                changed = true;
+            }
+        }
+        if (changed) {
+            EntityState st;
+            st.id = id;
+            st.attributes = merged;
+            m_entityStates[id] = st;
+            changedList.append(st);
+        }
     }
 }

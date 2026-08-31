@@ -81,6 +81,9 @@ public:
     /** @brief 获取整体进度百分比（0~100） */
     double overallProgress() const;
 
+    /** @brief 当前跟踪/显示的实体属性名列表（转发自 ReplayWorker） */
+    QStringList trackedAttributes() const;
+
 signals:
     void stateChanged(ReplayEngine::State newState);
     void simTimeChanged(const QDateTime &simTime);
@@ -88,6 +91,9 @@ signals:
     void replayFinished();
     void errorOccurred(const QString &error);
     void logMessage(const QString &level, const QString &message);
+
+    /** @brief 实体状态更新（转发自 ReplayWorker，主线程发射） */
+    void entityStatesUpdated(const QList<EntityState> &changed);
 
 private slots:
     /** @brief 定时器 tick：前置判断 + 异步派发一个窗口处理任务到工作线程 */

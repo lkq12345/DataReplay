@@ -40,6 +40,10 @@ Server_DataReplay::Server_DataReplay(QObject *parent)
     connect(m_replayEngine, &ReplayEngine::replayFinished,
             this, &Server_DataReplay::replayFinished);
 
+    // 实体状态更新：直通
+    connect(m_replayEngine, &ReplayEngine::entityStatesUpdated,
+            this, &Server_DataReplay::entityStatesUpdated);
+
     // 错误：直通
     connect(m_replayEngine, &ReplayEngine::errorOccurred,
             this, &Server_DataReplay::errorOccurred);
@@ -239,4 +243,9 @@ Server_DataReplay::EngineState Server_DataReplay::state() const
 double Server_DataReplay::overallProgress() const
 {
     return m_replayEngine->overallProgress();
+}
+
+QStringList Server_DataReplay::trackedAttributes() const
+{
+    return m_replayEngine->trackedAttributes();
 }

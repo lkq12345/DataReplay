@@ -34,6 +34,8 @@ ReplayEngine::ReplayEngine(QObject *parent)
     connect(m_worker, &ReplayWorker::logMessage, this, &ReplayEngine::logMessage);
     connect(m_worker, &ReplayWorker::windowProcessed, this, &ReplayEngine::onWindowProcessed);
     connect(m_worker, &ReplayWorker::fileOpened, this, &ReplayEngine::onFileOpened);
+    connect(m_worker, &ReplayWorker::entityStatesUpdated,
+            this, &ReplayEngine::entityStatesUpdated);
 
     m_workerThread->start();
 }
@@ -252,6 +254,11 @@ void ReplayEngine::setEntityIdMapping(const QMap<QString, QString> &mapping)
 int ReplayEngine::speed() const
 {
     return m_speed;
+}
+
+QStringList ReplayEngine::trackedAttributes() const
+{
+    return m_worker ? m_worker->trackedAttributes() : QStringList();
 }
 
 ReplayEngine::State ReplayEngine::state() const

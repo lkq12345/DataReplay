@@ -15,6 +15,7 @@
 #include "DataReplayWidget.h"
 #include "ui_DataReplayWidget.h"
 #include "EntityFilterProxyModel.h"
+#include "EntityStateFilterProxyModel.h"
 #include "ScenarioFilterProxyModel.h"
 #include "ImportDialog.h"
 #include "DescriptionDialog.h"
@@ -72,6 +73,7 @@ DataReplayWidget::DataReplayWidget(QWidget *parent)
     // ==================== 初始化模型 ====================
     initTreeModel();
     initEntityTable();
+    initEntityStatePanel();
 
     // ==================== 统一连接信号/槽 ====================
     initConnects();
@@ -178,6 +180,16 @@ void DataReplayWidget::initConnects()
     // -- 外部 NATS 指令（经 Facade 转发，QueuedConnection 保证槽在主线程执行） --
     connect(m_server, &Server_DataReplay::natsMessageReceived,
             this, &DataReplayWidget::onNATSMessage);
+
+    // -- 实体状态更新（经 Facade 转发，主线程执行） --
+    connect(m_server, &Server_DataReplay::entityStatesUpdated,
+            this, &DataReplayWidget::onEntityStatesUpdated);
+
+    // -- 实体状态页：搜索 --
+    connect(ui->btn_SearchEntityState, &QPushButton::clicked,
+            this, &DataReplayWidget::onSearchEntityState);
+    connect(ui->lineEdit_SearchEntityState, &QLineEdit::returnPressed,
+            this, &DataReplayWidget::onSearchEntityState);
 }
 
 void DataReplayWidget::closeEvent(QCloseEvent *event)
@@ -401,6 +413,8 @@ void DataReplayWidget::onInit()
     if (success) {
         m_isInitialized = true;
         m_selectedDataFile = nodePath;
+        // 用想定初始实体信息填充实体状态页（初始化/回放从初始值开始）
+        fillEntityStateInitial(scenario);
         m_server->log("INFO", "回放引擎初始化完成");
     } else {
         m_server->log("ERROR", "回放引擎初始化失败");
@@ -514,6 +528,11 @@ void DataReplayWidget::onEngineStateChanged(Server_DataReplay::EngineState state
         m_isInitialized = false;
     }
 
+    // 停止后：实体状态页恢复为想定初始值
+    if (state == Server_DataReplay::Stopped) {
+        restoreEntityStateInitial();
+    }
+
     // 如果从 Playing 变为其他状态，更新 NATS 状态显示
     if (state == Server_DataReplay::Ready || state == Server_DataReplay::Stopped) {
         ui->label_StatusNATS->setText(QStringLiteral("NATS: 已连接"));
@@ -525,6 +544,7 @@ void DataReplayWidget::onReplayFinished()
     m_server->log("INFO", "回放已全部完成");
     ui->label_StatusNATS->setText(QStringLiteral("NATS: 已连接"));
     m_isInitialized = false;
+    // 实体状态恢复由 stateChanged(Stopped) → onEngineStateChanged 统一处理，此处不重复调用
 }
 
 void DataReplayWidget::onError(const QString &error)
@@ -1211,6 +1231,8 @@ void DataReplayWidget::onImportScenario()
 
 void DataReplayWidget::onNATSMessage(const QString &topicName, const QByteArray &data)
 {
+    Q_UNUSED(topicName);   // 指令由消息体的 topic 字段驱动，主题本身暂不参与分发
+
     // 解析 JSON（data 为长度明确的二进制数据，不会越界读取）
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
@@ -1284,4 +1306,128 @@ void DataReplayWidget::handleInitCommand(const QString &fileName)
     }
 
     qWarning() << "onNATSMessage INIT: 未找到数据文件" << fileName;
+}
+
+// ==================== 实体状态页 ====================
+
+void DataReplayWidget::initEntityStatePanel()
+{
+    // 源模型：实体ID | 名称 | <动态属性列（默认 X/Y/Z）>
+    m_entityStateModel = new QStandardItemModel(this);
+
+    const QStringList attrs = m_server->trackedAttributes();
+    QStringList headers;
+    headers << QStringLiteral("实体ID") << QStringLiteral("名称");
+    for (const QString &attr : attrs) {
+        headers << attr.toUpper();
+        m_attributeColMap[attr] = headers.size() - 1;   // 属性名 → 列号
+    }
+    m_entityStateModel->setColumnCount(headers.size());
+    m_entityStateModel->setHorizontalHeaderLabels(headers);
+
+    // 过滤代理：按 实体ID/名称 搜索
+    m_entityStateProxyModel = new EntityStateFilterProxyModel(this);
+    m_entityStateProxyModel->setSourceModel(m_entityStateModel);
+    ui->tableView_EntityState->setModel(m_entityStateProxyModel);
+    ui->tableView_EntityState->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui->tableView_EntityState->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    // UI 刷新节流定时器：单次触发，收到更新后 150ms 聚合刷新
+    m_uiRefreshTimer = new QTimer(this);
+    m_uiRefreshTimer->setSingleShot(true);
+    m_uiRefreshTimer->setInterval(150);
+    connect(m_uiRefreshTimer, &QTimer::timeout,
+            this, &DataReplayWidget::refreshEntityStateUI);
+}
+
+void DataReplayWidget::onEntityStatesUpdated(const QList<EntityState> &changed)
+{
+    // 只更新内存状态表并置脏标记，不直接触碰控件；
+    // UI 由节流定时器在固定频率批量刷新，避免倍速/大数据量时卡顿。
+    for (const EntityState &st : changed) {
+        m_entityStates[st.id] = st;
+        m_dirtyEntities.insert(st.id);
+    }
+
+    if (!m_dirtyEntities.isEmpty() && !m_uiRefreshTimer->isActive()) {
+        m_uiRefreshTimer->start();
+    }
+}
+
+void DataReplayWidget::refreshEntityStateUI()
+{
+    if (m_dirtyEntities.isEmpty())
+        return;
+
+    for (const QString &id : m_dirtyEntities) {
+        const int row = m_entityRowMap.value(id, -1);
+        if (row < 0)
+            continue;
+
+        const EntityState st = m_entityStates.value(id);
+        for (auto it = st.attributes.begin(); it != st.attributes.end(); ++it) {
+            const int col = m_attributeColMap.value(it.key(), -1);
+            if (col < 0)
+                continue;
+            QStandardItem *item = m_entityStateModel->item(row, col);
+            if (item) {
+                item->setText(QString::number(it.value()));
+            }
+        }
+    }
+
+    m_dirtyEntities.clear();
+}
+
+void DataReplayWidget::fillEntityStateInitial(const Scenario *scenario)
+{
+    if (!scenario)
+        return;
+
+    m_entityStateModel->removeRows(0, m_entityStateModel->rowCount());
+    m_entityRowMap.clear();
+    m_entityStates.clear();
+    m_dirtyEntities.clear();
+
+    for (const EntityInfo &entity : scenario->entities) {
+        const int row = m_entityStateModel->rowCount();
+        m_entityStateModel->insertRow(row);
+
+        m_entityStateModel->setItem(row, 0, new QStandardItem(entity.id));
+        m_entityStateModel->setItem(row, 1, new QStandardItem(entity.name));
+
+        for (auto it = m_attributeColMap.begin(); it != m_attributeColMap.end(); ++it) {
+            const double val = entity.attributes.value(it.key(), 0.0);
+            m_entityStateModel->setItem(row, it.value(),
+                                        new QStandardItem(QString::number(val)));
+        }
+
+        m_entityRowMap[entity.id] = row;
+    }
+}
+
+void DataReplayWidget::restoreEntityStateInitial()
+{
+    const Scenario *scenario = m_server->currentScenario();
+    if (scenario) {
+        fillEntityStateInitial(scenario);
+    } else {
+        m_entityStateModel->removeRows(0, m_entityStateModel->rowCount());
+        m_entityRowMap.clear();
+        m_entityStates.clear();
+        m_dirtyEntities.clear();
+    }
+}
+
+void DataReplayWidget::onSearchEntityState()
+{
+    const QString keyword = ui->lineEdit_SearchEntityState->text().trimmed();
+    if (keyword.isEmpty()) {
+        // 清空搜索 → 显示全部
+        m_entityStateProxyModel->setFilterRegularExpression(QRegularExpression());
+    } else {
+        m_entityStateProxyModel->setFilterRegularExpression(
+            QRegularExpression(QRegularExpression::escape(keyword),
+                               QRegularExpression::CaseInsensitiveOption));
+    }
 }

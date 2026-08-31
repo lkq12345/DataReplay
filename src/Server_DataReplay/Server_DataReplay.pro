@@ -12,17 +12,12 @@ DESTDIR = $$PWD/../../bin
 # ==================== 编译中间文件输出到 temp 目录 ====================
 # .o / moc / uic 等中间产物统一放到项目根 temp/ 下（已被 .gitignore 忽略），
 # 不在源码目录生成 debug/、release/ 子目录。
-CONFIG(debug, debug|release) {
-    OBJECTS_DIR = $$PWD/../../temp/obj/debug/$$TARGET
-    MOC_DIR     = $$PWD/../../temp/moc/debug/$$TARGET
-    UI_DIR      = $$PWD/../../temp/ui/debug/$$TARGET
-    RCC_DIR     = $$PWD/../../temp/rcc/debug/$$TARGET
-} else {
-    OBJECTS_DIR = $$PWD/../../temp/obj/release/$$TARGET
-    MOC_DIR     = $$PWD/../../temp/moc/release/$$TARGET
-    UI_DIR      = $$PWD/../../temp/ui/release/$$TARGET
-    RCC_DIR     = $$PWD/../../temp/rcc/release/$$TARGET
-}
+# 注意：这些变量必须在顶层设置（不能放在 CONFIG() 条件块内），
+# 否则 qmake 生成 ui_*.h 依赖时无法正确解析路径。
+OBJECTS_DIR = $$PWD/../../temp/obj/$$TARGET
+MOC_DIR     = $$PWD/../../temp/moc/$$TARGET
+UI_DIR      = $$PWD/../../temp/ui/$$TARGET
+RCC_DIR     = $$PWD/../../temp/rcc/$$TARGET
 
 # The following define makes your compiler emit warnings if you use
 # any Qt feature that has been marked deprecated (the exact warnings

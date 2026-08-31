@@ -23,6 +23,7 @@
 #include <QMap>
 #include <QList>
 #include "Server_DataReplay_global.h"
+#include "publicDefineAndStruct.h"    // EntityState
 #include "ScenarioMgr.h"    // for Scenario, EntityInfo, ScenarioSummary 结构体（API 层需要完整定义）
 
 // 前置声明内部模块（APP 层不感知）
@@ -152,6 +153,9 @@ public:
     /** @brief 获取整体回放进度（0.0 ~ 100.0） */
     double overallProgress() const;
 
+    /** @brief 当前跟踪/显示的实体属性名列表（转发自 ReplayEngine） */
+    QStringList trackedAttributes() const;
+
 signals:
     /** @brief 引擎状态变更 */
     void stateChanged(Server_DataReplay::EngineState state);
@@ -176,6 +180,9 @@ signals:
 
     /** @brief NATS 消息到达（转发自 Communication_NATS，APP 通过此信号接收外部指令） */
     void natsMessageReceived(const QString &topic, const QByteArray &data);
+
+    /** @brief 实体状态更新（转发自 ReplayEngine，APP 通过此信号刷新实体状态面板） */
+    void entityStatesUpdated(const QList<EntityState> &changed);
 
 private:
     ScenarioMgr  *m_scenarioMgr  = nullptr;

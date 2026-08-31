@@ -173,7 +173,7 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
 
             // ========== Entities 区域：解析仿真实体列表 ==========
             else if (xml.name() == QLatin1String("Entities")) {
-                // 提取每个 Entity 的 ID 和 Name
+                // 提取每个 Entity 的 ID、Name 和 Attribute 数值属性
                 while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
                          xml.name() == QLatin1String("Entities"))) {
                     xml.readNext();
@@ -185,10 +185,25 @@ bool ScenarioMgr::parseScenarioXml(const QString &filePath, Scenario &scenario)
                         entity.id   = entAttrs.value("ID").toString();
                         entity.name = entAttrs.value("Name").toString();
 
-                        // 跳过 Entity 内部的子元素，不解析
+                        // 解析 Entity 内部子元素：<Attribute X="..." Y="..." Z="..." .../>
+                        // 提取所有数值属性到 attributes（Status 等非数值属性自动跳过）。
+                        // 注意：XML 属性名为大写（如 X/Y/Z），统一转小写存储，
+                        // 与数据 JSON 字段（x/y/z）和跟踪属性列表保持一致。
                         while (!(xml.tokenType() == QXmlStreamReader::EndElement &&
                                  xml.name() == QLatin1String("Entity"))) {
                             xml.readNext();
+
+                            if (xml.tokenType() == QXmlStreamReader::StartElement &&
+                                xml.name() == QLatin1String("Attribute")) {
+                                const QXmlStreamAttributes attrs = xml.attributes();
+                                for (const QXmlStreamAttribute &attr : attrs) {
+                                    bool ok = false;
+                                    const double val = attr.value().toDouble(&ok);
+                                    if (ok) {
+                                        entity.attributes[attr.name().toString().toLower()] = val;
+                                    }
+                                }
+                            }
                         }
                         scenario.entities.append(entity);
                     }

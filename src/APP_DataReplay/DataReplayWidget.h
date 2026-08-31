@@ -15,6 +15,8 @@
 #include <QMap>
 #include <QPoint>
 #include <QByteArray>
+#include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QJsonParseError>
 
@@ -27,6 +29,7 @@ QT_END_NAMESPACE
 // 前置声明
 class ScenarioFilterProxyModel;
 class EntityFilterProxyModel;
+class EntityStateFilterProxyModel;
 class DescriptionDialog;
 struct Scenario;
 
@@ -127,6 +130,12 @@ private slots:
     /** @brief 接收外部 NATS 指令（INIT/START/PAUSE/RESUME/STOP），主线程执行 */
     void onNATSMessage(const QString &topicName, const QByteArray &data);
 
+    /** @brief 实体状态更新（来自 Facade，仅更新内存状态表并置脏，UI 由节流定时器刷新） */
+    void onEntityStatesUpdated(const QList<EntityState> &changed);
+
+    /** @brief 实体状态页搜索（实体ID/名称过滤） */
+    void onSearchEntityState();
+
     /** @brief 导入想定（完整 UI 流程入口） */
     void onImportScenario();
 
@@ -170,6 +179,18 @@ private:
     /** @brief INIT 指令：在文件树中查找指定数据文件并选中，复用初始化流程 */
     void handleInitCommand(const QString &fileName);
 
+    /** @brief 初始化实体状态页（模型/代理/节流定时器/表头） */
+    void initEntityStatePanel();
+
+    /** @brief 用想定初始实体信息填充实体状态页（初始化/停止时调用） */
+    void fillEntityStateInitial(const Scenario *scenario);
+
+    /** @brief 停止/回放完成时把实体状态页恢复为想定初始值 */
+    void restoreEntityStateInitial();
+
+    /** @brief 节流定时器触发的 UI 刷新（只更新脏实体的属性格） */
+    void refreshEntityStateUI();
+
 private:
     Ui::DataReplayWidget *ui;
 
@@ -191,6 +212,15 @@ private:
 
     // 映射
     QMap<QString, QString> m_entityIdMapping;   //!< 实体ID映射表（当前值 → 映射值）
+
+    // ---- 实体状态页（QTabWidget 第二页） ----
+    QStandardItemModel          *m_entityStateModel = nullptr;     //!< 实体状态源模型
+    EntityStateFilterProxyModel *m_entityStateProxyModel = nullptr; //!< 实体状态过滤代理
+    QTimer                       *m_uiRefreshTimer = nullptr;      //!< UI 刷新节流定时器
+    QHash<QString, EntityState>  m_entityStates;                   //!< 内存实体状态表
+    QHash<QString, int>          m_entityRowMap;                   //!< 实体ID → 表格行号
+    QHash<QString, int>          m_attributeColMap;                //!< 属性名 → 表格列号
+    QSet<QString>                m_dirtyEntities;                  //!< 待刷新（位置变化）的实体ID
 };
 
 #endif // DATAREPLAYWIDGET_H
