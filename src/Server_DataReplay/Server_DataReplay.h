@@ -23,8 +23,7 @@
 #include <QMap>
 #include <QList>
 #include "Server_DataReplay_global.h"
-#include "publicDefineAndStruct.h"    // EntityState
-#include "ScenarioMgr.h"    // for Scenario, EntityInfo, ScenarioSummary 结构体（API 层需要完整定义）
+#include "ScenarioMgr.h"    // for Scenario, EntityInfo, EntityState, ScenarioSummary 结构体（API 层需要完整定义）
 
 // 前置声明内部模块（APP 层不感知）
 class ReplayEngine;

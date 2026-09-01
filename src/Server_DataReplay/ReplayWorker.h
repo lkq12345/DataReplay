@@ -33,7 +33,7 @@
 #include <QMutex>
 
 #include "DataFileReader.h"   // DataFileInfo、DataFileReader、DataRecord
-#include "publicDefineAndStruct.h"   // EntityState
+#include "ScenarioMgr.h"      // EntityState
 
 /**
  * @brief 单个时间窗口的处理结果（由 worker 线程回传给主线程）

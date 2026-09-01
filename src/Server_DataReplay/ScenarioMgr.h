@@ -8,6 +8,7 @@
 #include <QList>
 #include <QMap>
 #include <QJsonObject>
+#include <QMetaType>
 #include "Server_DataReplay_global.h"
 
 /**
@@ -35,6 +36,19 @@ struct EntityInfo {
     QString name;           //!< 实体显示名称，例如 "东方之星"（来自 Entity 元素的 Name 属性）
     QMap<QString, double> attributes;   //!< 初始属性（属性名→值，来自 XML 的 Attribute 数值属性，如 x/y/z/speed）
 };
+
+/**
+ * @brief 运行时实体状态（实体ID + 属性名→值）
+ *
+ * 用于实体状态页：想定初始值（从 XML 解析）与回放实时值（从数据解析）统一用此结构。
+ * 属性种类/个数可扩展（如 x/y/z，未来可加 speed/heading 等），仅需修改跟踪属性名列表。
+ */
+struct EntityState {
+    QString id;                            //!< 实体ID（与想定实体对应）
+    QMap<QString, double> attributes;      //!< 属性名→值（如 "x"→50000, "y"→50000, "z"→0）
+};
+
+Q_DECLARE_METATYPE(EntityState)
 
 /**
  * @brief 想定完整信息
